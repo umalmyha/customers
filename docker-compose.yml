@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+  customers-api:
+    build: .
+    image: umalmyha/customers
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_SLL_MODE=${POSTGRES_SLL_MODE}
+      - POSTGRES_POOL_MAX_CONN=${POSTGRES_POOL_MAX_CONN}
+    restart: always
+    depends_on:
+      - pg-customers
+      - migrate
+    ports:
+      - "3000:3000"
+
+  pg-customers:
+    image: "postgres:latest"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    restart: always
+    volumes:
+      - pgcustomers:/var/lib/postgresql/data
+
+  migrate:
+    image: "migrate/migrate:latest"
+    volumes:
+      - ./migrations:/migrations
+    command:
+      -path /migrations -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pg-customers:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SLL_MODE} up
+    depends_on:
+      - pg-customers
+
+volumes:
+  pgcustomers:

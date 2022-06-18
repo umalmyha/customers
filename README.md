@@ -1,2 +1,1 @@
-# customers
-Customers API
+# Customers API
