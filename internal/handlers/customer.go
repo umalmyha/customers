@@ -1,11 +1,17 @@
 package handlers
 
 import (
+	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/umalmyha/customers/internal/customer"
+	"github.com/umalmyha/customers/internal/errors"
 	"github.com/umalmyha/customers/internal/service"
 	"net/http"
 )
+
+var DeserializeRequestPayloadErr = func(reason string) error {
+	return errors.NewBusinessErr("payload", fmt.Sprintf("failed to deserialize request pyaload - %s", reason))
+}
 
 type CustomerHandler struct {
 	custSrv service.CustomerService
@@ -34,8 +40,9 @@ func (h *CustomerHandler) GetAll(c echo.Context) error {
 func (h *CustomerHandler) Post(c echo.Context) error {
 	var newCust customer.NewCustomer
 	if err := c.Bind(&newCust); err != nil {
-		return err
+		return DeserializeRequestPayloadErr(err.Error())
 	}
+	return echo.ErrNotFound
 
 	cust, err := h.custSrv.Create(c.Request().Context(), newCust)
 	if err != nil {
@@ -47,7 +54,7 @@ func (h *CustomerHandler) Post(c echo.Context) error {
 func (h *CustomerHandler) Patch(c echo.Context) error {
 	var patchCust customer.PatchCustomer
 	if err := c.Bind(&patchCust); err != nil {
-		return err
+		return DeserializeRequestPayloadErr(err.Error())
 	}
 
 	cust, err := h.custSrv.Merge(c.Request().Context(), patchCust)
@@ -60,7 +67,7 @@ func (h *CustomerHandler) Patch(c echo.Context) error {
 func (h *CustomerHandler) Put(c echo.Context) error {
 	var updCust customer.UpdateCustomer
 	if err := c.Bind(&updCust); err != nil {
-		return err
+		return DeserializeRequestPayloadErr(err.Error())
 	}
 
 	cust, err := h.custSrv.Upsert(c.Request().Context(), updCust)
