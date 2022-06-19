@@ -77,7 +77,7 @@ func (srv *customerService) FindById(ctx context.Context, id string) (customer.C
 		return cust, err
 	}
 
-	if cust.IsInitial() {
+	if cust.Id == "" {
 		return cust, CustomerNotFoundErr(id)
 	}
 	return cust, nil
@@ -102,7 +102,7 @@ func (srv *customerService) Upsert(ctx context.Context, updCust customer.UpdateC
 	}
 
 	cust := customer.Customer(updCust)
-	if existCust.IsInitial() {
+	if existCust.Id == "" {
 		if _, err := srv.customerRepo.Create(ctx, cust); err != nil {
 			return customer.Customer{}, err
 		}
@@ -125,7 +125,7 @@ func (srv *customerService) Merge(ctx context.Context, patchCust customer.PatchC
 		return existCust, err
 	}
 
-	if existCust.IsInitial() {
+	if existCust.Id == "" {
 		return existCust, CustomerNotFoundErr(patchCust.Id)
 	}
 

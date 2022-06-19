@@ -19,10 +19,6 @@ type Customer struct {
 	Inactive   bool       `json:"inactive"`
 }
 
-func (cust Customer) IsInitial() bool {
-	return cust == (Customer{})
-}
-
 func (cust Customer) MergePatch(patch PatchCustomer) Customer {
 	if patch.FirstName != nil {
 		cust.FirstName = *patch.FirstName

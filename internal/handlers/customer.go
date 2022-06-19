@@ -42,7 +42,6 @@ func (h *CustomerHandler) Post(c echo.Context) error {
 	if err := c.Bind(&newCust); err != nil {
 		return DeserializeRequestPayloadErr(err.Error())
 	}
-	return echo.ErrNotFound
 
 	cust, err := h.custSrv.Create(c.Request().Context(), newCust)
 	if err != nil {
