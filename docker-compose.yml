@@ -2,7 +2,9 @@ version: '3'
 
 services:
   customers-api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.app
     image: umalmyha/customers
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
@@ -25,16 +27,26 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
+    healthcheck:
+      test: pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: always
     volumes:
       - pgcustomers:/var/lib/postgresql/data
 
   migrate:
-    image: "migrate/migrate:latest"
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    image: umalmyha/migrate
     volumes:
       - ./migrations:/migrations
-    command:
-      -path /migrations -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pg-customers:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SLL_MODE} up
+    command: bash -c "
+      ./wait-for-it.sh pg-customers:5432 --timeout=5
+      && migrate -path /migrations -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pg-customers:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SLL_MODE} up
+      "
     depends_on:
       - pg-customers
 
