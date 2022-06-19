@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/labstack/echo/v4"
-	customerrs "github.com/umalmyha/customers/internal/errors"
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
@@ -86,7 +85,6 @@ func app(pool *pgxpool.Pool) *echo.Echo {
 	custHandler := handlers.NewCustomerHandler(custSrv)
 
 	e := echo.New()
-	e.HTTPErrorHandler = errorHandler
 
 	apiGrp := e.Group("/api")
 
@@ -95,20 +93,7 @@ func app(pool *pgxpool.Pool) *echo.Echo {
 	custGrp.GET("/:id", custHandler.Get)
 	custGrp.POST("", custHandler.Post)
 	custGrp.PUT("/:id", custHandler.Put)
-	custGrp.PATCH("/:id", custHandler.Patch)
 	custGrp.DELETE("/:id", custHandler.DeleteById)
 
 	return e
-}
-
-func errorHandler(err error, c echo.Context) {
-	c.Logger().Errorf("error occurred on request processing - %s", err)
-	switch e := err.(type) {
-	case *customerrs.EntryNotFoundErr:
-		c.NoContent(http.StatusNotFound)
-	case *customerrs.BusinessErr:
-		c.JSON(http.StatusBadRequest, e)
-	default:
-		c.NoContent(http.StatusInternalServerError)
-	}
 }
