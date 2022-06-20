@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"github.com/umalmyha/customers/internal/customer"
 	"github.com/umalmyha/customers/internal/repository"
 )
@@ -24,19 +23,17 @@ func NewCustomerService(customerRepo repository.CustomerRepository) CustomerServ
 }
 
 func (s *customerService) Create(ctx context.Context, c customer.Customer) (customer.Customer, error) {
-	c.Id = uuid.NewString()
-	if _, err := s.customerRepo.Create(ctx, c); err != nil {
+	id, err := s.customerRepo.Create(ctx, c)
+	if err != nil {
 		return c, err
 	}
+
+	c.Id = id
 	return c, nil
 }
 
 func (s *customerService) DeleteById(ctx context.Context, id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return err
-	}
-
-	_, err := s.customerRepo.DeleteById(ctx, id)
+	err := s.customerRepo.DeleteById(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -44,10 +41,6 @@ func (s *customerService) DeleteById(ctx context.Context, id string) error {
 }
 
 func (s *customerService) FindById(ctx context.Context, id string) (customer.Customer, error) {
-	if _, err := uuid.Parse(id); err != nil {
-		return customer.Customer{}, err
-	}
-
 	c, err := s.customerRepo.FindById(ctx, id)
 	if err != nil {
 		return c, err
@@ -64,10 +57,6 @@ func (s *customerService) FindAll(ctx context.Context) ([]customer.Customer, err
 }
 
 func (s *customerService) Upsert(ctx context.Context, c customer.Customer) (customer.Customer, error) {
-	if _, err := uuid.Parse(c.Id); err != nil {
-		return customer.Customer{}, err
-	}
-
 	existCust, err := s.customerRepo.FindById(ctx, c.Id)
 	if err != nil {
 		return customer.Customer{}, err
@@ -80,7 +69,7 @@ func (s *customerService) Upsert(ctx context.Context, c customer.Customer) (cust
 		return c, nil
 	}
 
-	if _, err := s.customerRepo.Update(ctx, c); err != nil {
+	if err := s.customerRepo.Update(ctx, c); err != nil {
 		return customer.Customer{}, err
 	}
 	return c, nil
