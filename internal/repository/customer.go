@@ -112,6 +112,9 @@ func (r *mongoCustomerRepository) FindById(ctx context.Context, id string) (cust
 
 	var c customer.Customer
 	if err := r.client.Database("customers").Collection("customers").FindOne(ctx, bson.M{"_id": docId}).Decode(&c); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return customer.Customer{}, nil
+		}
 		return customer.Customer{}, err
 	}
 	return c, nil

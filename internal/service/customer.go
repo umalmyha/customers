@@ -57,18 +57,6 @@ func (s *customerService) FindAll(ctx context.Context) ([]customer.Customer, err
 }
 
 func (s *customerService) Upsert(ctx context.Context, c customer.Customer) (customer.Customer, error) {
-	existCust, err := s.customerRepo.FindById(ctx, c.Id)
-	if err != nil {
-		return customer.Customer{}, err
-	}
-
-	if existCust.Id == "" {
-		if _, err := s.customerRepo.Create(ctx, c); err != nil {
-			return customer.Customer{}, err
-		}
-		return c, nil
-	}
-
 	if err := s.customerRepo.Update(ctx, c); err != nil {
 		return customer.Customer{}, err
 	}
