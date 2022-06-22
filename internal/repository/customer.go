@@ -7,14 +7,13 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/umalmyha/customers/internal/customer"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type CustomerRepository interface {
 	FindById(context.Context, string) (customer.Customer, error)
 	FindAll(context.Context) ([]customer.Customer, error)
-	Create(context.Context, customer.Customer) (string, error)
+	Create(context.Context, customer.Customer) error
 	Update(context.Context, customer.Customer) error
 	DeleteById(context.Context, string) error
 }
@@ -65,16 +64,15 @@ func (r *postgresCustomerRepository) FindAll(ctx context.Context) ([]customer.Cu
 	return customers, nil
 }
 
-func (r *postgresCustomerRepository) Create(ctx context.Context, c customer.Customer) (string, error) {
-	q := `INSERT INTO customers(first_name, last_name, middle_name, email, importance, inactive)
-					  VALUES($1, $2, $3, $4, $5, $6) RETURNING id`
+func (r *postgresCustomerRepository) Create(ctx context.Context, c customer.Customer) error {
+	q := `INSERT INTO customers(id, first_name, last_name, middle_name, email, importance, inactive)
+					  VALUES($1, $2, $3, $4, $5, $6, $7)`
 
-	var id string
-	err := r.pool.QueryRow(ctx, q, &c.FirstName, &c.LastName, &c.MiddleName, &c.Email, &c.Importance, &c.Inactive).Scan(&id)
+	_, err := r.pool.Exec(ctx, q, &c.Id, &c.FirstName, &c.LastName, &c.MiddleName, &c.Email, &c.Importance, &c.Inactive)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return id, nil
+	return nil
 }
 
 func (r *postgresCustomerRepository) Update(ctx context.Context, c customer.Customer) error {
@@ -105,13 +103,8 @@ func NewMongoCustomerRepository(client *mongo.Client) *mongoCustomerRepository {
 }
 
 func (r *mongoCustomerRepository) FindById(ctx context.Context, id string) (customer.Customer, error) {
-	docId, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return customer.Customer{}, err
-	}
-
 	var c customer.Customer
-	if err := r.client.Database("customers").Collection("customers").FindOne(ctx, bson.M{"_id": docId}).Decode(&c); err != nil {
+	if err := r.client.Database("customers").Collection("customers").FindOne(ctx, bson.M{"_id": id}).Decode(&c); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return customer.Customer{}, nil
 		}
@@ -133,26 +126,16 @@ func (r *mongoCustomerRepository) FindAll(ctx context.Context) ([]customer.Custo
 	return customers, nil
 }
 
-func (r *mongoCustomerRepository) Create(ctx context.Context, c customer.Customer) (string, error) {
-	res, err := r.client.Database("customers").Collection("customers").InsertOne(ctx, c)
-	if err != nil {
-		return "", err
-	}
-
-	docId, ok := res.InsertedID.(primitive.ObjectID)
-	if !ok {
-		return "", errors.New("newly generated id has incorrect format")
-	}
-	return docId.Hex(), nil
-}
-
-func (r *mongoCustomerRepository) Update(ctx context.Context, c customer.Customer) error {
-	docId, err := primitive.ObjectIDFromHex(c.Id)
+func (r *mongoCustomerRepository) Create(ctx context.Context, c customer.Customer) error {
+	_, err := r.client.Database("customers").Collection("customers").InsertOne(ctx, c)
 	if err != nil {
 		return err
 	}
+	return nil
+}
 
-	_, err = r.client.Database("customers").Collection("customers").UpdateByID(ctx, docId, bson.D{
+func (r *mongoCustomerRepository) Update(ctx context.Context, c customer.Customer) error {
+	_, err := r.client.Database("customers").Collection("customers").UpdateByID(ctx, c.Id, bson.D{
 		{"$set", bson.D{
 			{"firstName", c.FirstName},
 			{"lastName", c.LastName},
@@ -169,13 +152,7 @@ func (r *mongoCustomerRepository) Update(ctx context.Context, c customer.Custome
 }
 
 func (r *mongoCustomerRepository) DeleteById(ctx context.Context, id string) error {
-	docId, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-
-	_, err = r.client.Database("customers").Collection("customers").DeleteOne(ctx, bson.M{"_id": docId})
-	if err != nil {
+	if _, err := r.client.Database("customers").Collection("customers").DeleteOne(ctx, bson.M{"_id": id}); err != nil {
 		return err
 	}
 	return nil
