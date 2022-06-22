@@ -9,6 +9,9 @@ import (
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"log"
 	"net/http"
 	"os"
@@ -18,22 +21,32 @@ import (
 
 const DefaultPort = 3000
 const DefaultShutdownTimeout = 10 * time.Second
-const DefaultDatabaseConnectTimeout = 5 * time.Second
+const ServerStartupTimeout = 10 * time.Second
 
 func main() {
-	pool, err := connectToDb()
+	ctx, cancel := context.WithTimeout(context.Background(), ServerStartupTimeout)
+	defer cancel()
+
+	pgPool, err := postgresql(ctx)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
-	defer pool.Close()
+	defer pgPool.Close()
 
-	start(pool)
+	mongoClient, err := mongodb(ctx)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	defer func() {
+		if err = mongoClient.Disconnect(ctx); err != nil {
+			log.Fatalf(err.Error())
+		}
+	}()
+
+	start(pgPool, mongoClient)
 }
 
-func connectToDb() (*pgxpool.Pool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultDatabaseConnectTimeout)
-	defer cancel()
-
+func postgresql(ctx context.Context) (*pgxpool.Pool, error) {
 	user := os.Getenv("POSTGRES_USER")
 	password := os.Getenv("POSTGRES_PASSWORD")
 	database := os.Getenv("POSTGRES_DB")
@@ -52,8 +65,25 @@ func connectToDb() (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func start(pool *pgxpool.Pool) {
-	app := app(pool)
+func mongodb(ctx context.Context) (*mongo.Client, error) {
+	user := os.Getenv("MONGO_USER")
+	password := os.Getenv("MONGO_PASSWORD")
+	maxPoolSize := os.Getenv("MONGO_MAX_POOL_SIZE")
+	uri := fmt.Sprintf("mongodb://%s:%s@mongo-customers:27017/?maxPoolSize=%s", user, password, maxPoolSize)
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client) {
+	app := app(pgPool, mongoClient)
 
 	shutdownCh := make(chan os.Signal, 1)
 	errorCh := make(chan error, 1)
@@ -79,21 +109,39 @@ func start(pool *pgxpool.Pool) {
 	}
 }
 
-func app(pool *pgxpool.Pool) *echo.Echo {
-	custRepo := repository.NewPostgresCustomerRepository(pool)
-	custSrv := service.NewCustomerService(custRepo)
-	custHandler := handlers.NewCustomerHandler(custSrv)
-
+func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client) *echo.Echo {
 	e := echo.New()
 
-	apiGrp := e.Group("/api")
+	handlerV1 := handlerV1(pgPool)
+	handlerV2 := handlerV2(mongoClient)
 
-	custGrp := apiGrp.Group("/customers")
-	custGrp.GET("", custHandler.GetAll)
-	custGrp.GET("/:id", custHandler.Get)
-	custGrp.POST("", custHandler.Post)
-	custGrp.PUT("/:id", custHandler.Put)
-	custGrp.DELETE("/:id", custHandler.DeleteById)
+	apiV1 := e.Group("/api/v1")
+	custV1 := apiV1.Group("/customers")
+	custV1.GET("", handlerV1.GetAll)
+	custV1.GET("/:id", handlerV1.Get)
+	custV1.POST("", handlerV1.Post)
+	custV1.PUT("/:id", handlerV1.Put)
+	custV1.DELETE("/:id", handlerV1.DeleteById)
+
+	apiV2 := e.Group("/api/v2")
+	custV2 := apiV2.Group("/customers")
+	custV2.GET("", handlerV2.GetAll)
+	custV2.GET("/:id", handlerV2.Get)
+	custV2.POST("", handlerV2.Post)
+	custV2.PUT("/:id", handlerV2.Put)
+	custV2.DELETE("/:id", handlerV2.DeleteById)
 
 	return e
+}
+
+func handlerV1(pgPool *pgxpool.Pool) *handlers.CustomerHandler {
+	custRepo := repository.NewPostgresCustomerRepository(pgPool)
+	custSrv := service.NewCustomerService(custRepo)
+	return handlers.NewCustomerHandler(custSrv)
+}
+
+func handlerV2(mongoClient *mongo.Client) *handlers.CustomerHandler {
+	custRepo := repository.NewMongoCustomerRepository(mongoClient)
+	custSrv := service.NewCustomerService(custRepo)
+	return handlers.NewCustomerHandler(custSrv)
 }

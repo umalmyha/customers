@@ -12,10 +12,14 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_SLL_MODE=${POSTGRES_SLL_MODE}
       - POSTGRES_POOL_MAX_CONN=${POSTGRES_POOL_MAX_CONN}
+      - MONGO_USER=${MONGO_USER}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_MAX_POOL_SIZE=${MONGO_MAX_POOL_SIZE}
     restart: always
     depends_on:
       - pg-customers
       - migrate
+      - mongo-customers
     ports:
       - "3000:3000"
 
@@ -30,6 +34,16 @@ services:
     restart: always
     volumes:
       - pgcustomers:/var/lib/postgresql/data
+
+  mongo-customers:
+    image: "mongo:latest"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongocustomers:/data/db
 
   migrate:
     build:
@@ -47,3 +61,4 @@ services:
 
 volumes:
   pgcustomers:
+  mongocustomers:
