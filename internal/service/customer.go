@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"github.com/google/uuid"
-	"github.com/umalmyha/customers/internal/customer"
+	"github.com/umalmyha/customers/internal/domain/customer"
 	"github.com/umalmyha/customers/internal/repository"
 )
 
