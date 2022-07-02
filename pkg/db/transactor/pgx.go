@@ -29,6 +29,7 @@ type PgxQueryExecutor interface {
 type PgxTransactor interface {
 	Transactor
 	Executor(ctx context.Context) PgxQueryExecutor
+	WithinTransactionWithOptions(context.Context, func(context.Context) error, pgx.TxOptions) error
 }
 
 type pgxTransactor struct {
@@ -48,13 +49,17 @@ func (t *pgxTransactor) Executor(ctx context.Context) PgxQueryExecutor {
 }
 
 func (t *pgxTransactor) WithinTransaction(ctx context.Context, txFunc func(context.Context) error) error {
+	return t.WithinTransactionWithOptions(ctx, txFunc, pgx.TxOptions{})
+}
+
+func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc func(context.Context) error, opts pgx.TxOptions) error {
 	conn, err := t.pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
 
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := conn.BeginTx(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -66,5 +71,10 @@ func (t *pgxTransactor) WithinTransaction(ctx context.Context, txFunc func(conte
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
