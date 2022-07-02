@@ -13,7 +13,7 @@ const AlgorithmEd25519 = "EdDSA"
 const DefaultRefreshTokenCookieName = "refresh-token"
 const DefaultRefreshTokenMaxCount = 5
 
-type jwtConfig struct {
+type jwtCfg struct {
 	Issuer        string
 	SigningMethod jwt.SigningMethod
 	TimeToLive    time.Duration
@@ -21,20 +21,20 @@ type jwtConfig struct {
 	PublicKey     crypto.PublicKey
 }
 
-type refreshTokenConfig struct {
+type refreshTokenCfg struct {
 	CookieName string
 	MaxCount   int
 	TimeToLive time.Duration
 }
 
-type AuthConfig struct {
+type AuthCfg struct {
 	Https           bool
-	JwtCfg          jwtConfig
-	RefreshTokenCfg refreshTokenConfig
+	JwtCfg          jwtCfg
+	RefreshTokenCfg refreshTokenCfg
 }
 
-func BuildAuthConfig() (AuthConfig, error) {
-	var cfg AuthConfig
+func AuthConfig() (AuthCfg, error) {
+	var cfg AuthCfg
 
 	if os.Getenv("AUTH_HTTPS") == "true" {
 		cfg.Https = true
@@ -42,60 +42,60 @@ func BuildAuthConfig() (AuthConfig, error) {
 
 	jwtCfg, err := buildJwtConfig()
 	if err != nil {
-		return AuthConfig{}, err
+		return AuthCfg{}, err
 	}
 	cfg.JwtCfg = jwtCfg
 
 	rfrCfg, err := buildRefreshTokenConfig()
 	if err != nil {
-		return AuthConfig{}, err
+		return AuthCfg{}, err
 	}
 	cfg.RefreshTokenCfg = rfrCfg
 
 	return cfg, nil
 }
 
-func buildJwtConfig() (jwtConfig, error) {
-	cfg := jwtConfig{
+func buildJwtConfig() (jwtCfg, error) {
+	cfg := jwtCfg{
 		Issuer:        os.Getenv("AUTH_JWT_ISSUER"),
 		SigningMethod: jwt.GetSigningMethod(AlgorithmEd25519),
 	}
 
 	ttl, err := time.ParseDuration(os.Getenv("AUTH_JWT_TIME_TO_LIVE"))
 	if err != nil {
-		return jwtConfig{}, err
+		return jwtCfg{}, err
 	}
 	cfg.TimeToLive = ttl
 
 	privKeyFile := os.Getenv("AUTH_JWT_PRIVATE_KEY_FILE")
 	privKeyBytes, err := ioutil.ReadFile(privKeyFile)
 	if err != nil {
-		return jwtConfig{}, err
+		return jwtCfg{}, err
 	}
 
 	privateKey, err := jwt.ParseEdPrivateKeyFromPEM(privKeyBytes)
 	if err != nil {
-		return jwtConfig{}, err
+		return jwtCfg{}, err
 	}
 	cfg.PrivateKey = privateKey
 
 	pubKeyFile := os.Getenv("AUTH_JWT_PUBLIC_KEY_FILE")
 	pubKeyBytes, err := ioutil.ReadFile(pubKeyFile)
 	if err != nil {
-		return jwtConfig{}, err
+		return jwtCfg{}, err
 	}
 
 	publicKey, err := jwt.ParseEdPublicKeyFromPEM(pubKeyBytes)
 	if err != nil {
-		return jwtConfig{}, err
+		return jwtCfg{}, err
 	}
 	cfg.PublicKey = publicKey
 
 	return cfg, nil
 }
 
-func buildRefreshTokenConfig() (refreshTokenConfig, error) {
-	var cfg refreshTokenConfig
+func buildRefreshTokenConfig() (refreshTokenCfg, error) {
+	var cfg refreshTokenCfg
 
 	cookieName := os.Getenv("AUTH_REFRESH_TOKEN_COOKIE_NAME")
 	if cookieName == "" {
@@ -109,14 +109,14 @@ func buildRefreshTokenConfig() (refreshTokenConfig, error) {
 	} else {
 		maxCount, err := strconv.Atoi(countStr)
 		if err != nil {
-			return refreshTokenConfig{}, err
+			return refreshTokenCfg{}, err
 		}
 		cfg.MaxCount = maxCount
 	}
 
 	ttl, err := time.ParseDuration(os.Getenv("AUTH_REFRESH_TOKEN_TIME_TO_LIVE"))
 	if err != nil {
-		return refreshTokenConfig{}, err
+		return refreshTokenCfg{}, err
 	}
 	cfg.TimeToLive = ttl
 

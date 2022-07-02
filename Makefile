@@ -17,9 +17,3 @@ down-v:
 	@echo Stopping containers and removing volumes...
 	docker-compose down -v
 	@echo Containers are stopped
-
-gen_keys:
-	@echo "Generating private and public keys..."
-	openssl genpkey -algorithm ED25519 -outform pem -out private.ed
-	openssl pkey -in private.ed -pubout > public.ed.pub
-	@echo "Keys were generated successfully"

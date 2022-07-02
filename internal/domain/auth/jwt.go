@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto"
 	"errors"
-	"fmt"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"time"
@@ -42,8 +41,8 @@ func (j *JwtIssuer) Sign(subj string, at time.Time) (Jwt, error) {
 			ID:        uuid.NewString(),
 			Issuer:    j.issuer,
 			Subject:   subj,
-			ExpiresAt: jwt.NewNumericDate(at),
-			IssuedAt:  jwt.NewNumericDate(expiresAt),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(at),
 		},
 	}
 
@@ -79,12 +78,4 @@ func (j *JwtValidator) keyFunc(token *jwt.Token) (any, error) {
 		return nil, errors.New("failed to verify sign algrithm")
 	}
 	return j.publicKey, nil
-}
-
-func algorithmSigningMethod(alg string) (jwt.SigningMethod, error) {
-	method := jwt.GetSigningMethod(alg)
-	if method == nil {
-		return nil, fmt.Errorf("unknown JWT signing algrithm %s", alg)
-	}
-	return method, nil
 }

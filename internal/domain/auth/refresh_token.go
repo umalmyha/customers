@@ -48,7 +48,7 @@ func (r RefreshToken) Verify(fingerprint string, now time.Time) error {
 		return ErrInvalidFingerprint
 	}
 
-	if r.CreatedAt.Add(time.Duration(r.ExpiresIn) * time.Second).After(now) {
+	if r.CreatedAt.Add(time.Duration(r.ExpiresIn) * time.Second).Before(now) {
 		return ErrRefreshTokenExpired
 	}
 	return nil

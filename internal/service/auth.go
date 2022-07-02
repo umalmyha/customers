@@ -66,7 +66,7 @@ func (s *authService) Login(ctx context.Context, login auth.Login) (auth.Jwt, au
 	}
 
 	if err := user.VerifyPassword(login.Password); err != nil {
-		return auth.Jwt{}, auth.RefreshToken{}, errors.New("password is incorrect") // TODO: Raise Unauthorized
+		return auth.Jwt{}, auth.RefreshToken{}, err // TODO: Raise Unauthorized
 	}
 
 	jwtToken, err := s.jwtIssuer.Sign(login.Email, login.At)
@@ -77,7 +77,7 @@ func (s *authService) Login(ctx context.Context, login auth.Login) (auth.Jwt, au
 	rfrToken := s.rfrTokenIssuer.Sign(user.Id, login.Fingerprint, login.At)
 
 	userTkns, err := s.rfrTknRepo.FindTokensByUserId(ctx, user.Id)
-	if len(userTkns) > s.rfrTokenIssuer.TokensMaxCount() {
+	if len(userTkns) >= s.rfrTokenIssuer.TokensMaxCount() {
 		if err := s.rfrTknRepo.DeleteByUserId(ctx, user.Id); err != nil {
 			return auth.Jwt{}, auth.RefreshToken{}, err
 		}
@@ -118,6 +118,9 @@ func (s *authService) Refresh(ctx context.Context, refresh auth.Refresh) (auth.J
 	}
 
 	newRfrToken := s.rfrTokenIssuer.Sign(user.Id, refresh.Fingerprint, refresh.At)
+	if err := s.rfrTknRepo.Create(ctx, newRfrToken); err != nil {
+		return auth.Jwt{}, auth.RefreshToken{}, err
+	}
 
 	return jwtToken, newRfrToken, nil
 }

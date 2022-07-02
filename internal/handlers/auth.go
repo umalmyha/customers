@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/labstack/echo/v4"
 	"github.com/umalmyha/customers/internal/domain/auth"
-	"github.com/umalmyha/customers/internal/infra"
 	"github.com/umalmyha/customers/internal/service"
 	"github.com/umalmyha/customers/pkg/db/transactor"
 	"net/http"
@@ -21,13 +20,18 @@ type AccessToken struct {
 	ExpiresAt int64  `json:"expiresAt"`
 }
 
+type AuthCfg struct {
+	Https              bool
+	RefreshTokenCookie string
+}
+
 type AuthHandler struct {
 	trx     transactor.Transactor
 	authSrv service.AuthService
-	authCfg infra.AuthConfig
+	authCfg AuthCfg
 }
 
-func NewAuthHandler(trx transactor.Transactor, authSrv service.AuthService, authCfg infra.AuthConfig) *AuthHandler {
+func NewAuthHandler(trx transactor.Transactor, authSrv service.AuthService, authCfg AuthCfg) *AuthHandler {
 	return &AuthHandler{
 		trx:     trx,
 		authSrv: authSrv,
@@ -86,7 +90,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 }
 
 func (h *AuthHandler) Logout(c echo.Context) error {
-	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCfg.CookieName)
+	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing - you are not logged in")
 	}
@@ -102,7 +106,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 }
 
 func (h *AuthHandler) Refresh(c echo.Context) error {
-	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCfg.CookieName)
+	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing - you are not logged in")
 	}
@@ -136,7 +140,7 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 
 func (h *AuthHandler) refreshTokenCookie(tknId string, expiresIn int) *http.Cookie {
 	return &http.Cookie{
-		Name:     h.authCfg.RefreshTokenCfg.CookieName,
+		Name:     h.authCfg.RefreshTokenCookie,
 		Value:    tknId,
 		Path:     "/api/auth",
 		MaxAge:   expiresIn,

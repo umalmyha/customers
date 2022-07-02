@@ -1,6 +1,11 @@
 package auth
 
-import "golang.org/x/crypto/bcrypt"
+import (
+	"errors"
+	"golang.org/x/crypto/bcrypt"
+)
+
+var ErrWrongPassword = errors.New("password is incorrect")
 
 type User struct {
 	Id           string `json:"id"`
@@ -9,7 +14,10 @@ type User struct {
 }
 
 func (u User) VerifyPassword(password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password))
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+		return ErrWrongPassword
+	}
+	return nil
 }
 
 func GeneratePasswordHash(pass string) (string, error) {

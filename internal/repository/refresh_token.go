@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v4"
 	"github.com/umalmyha/customers/internal/domain/auth"
 	"github.com/umalmyha/customers/pkg/db/transactor"
 )
@@ -23,7 +25,7 @@ func NewPostgresRefreshTokenRepository(trx transactor.PgxTransactor) RefreshToke
 }
 
 func (r *postgresRefreshTokenRepository) Create(ctx context.Context, s auth.RefreshToken) error {
-	q := "INSERT INTO refresh_tokens(id, user_id, fingerprint, expires_in, created_at)"
+	q := "INSERT INTO refresh_tokens(id, user_id, fingerprint, expires_in, created_at) VALUES($1, $2, $3, $4, $5)"
 	if _, err := r.trx.Executor(ctx).Exec(ctx, q, s.Id, s.UserId, s.Fingerprint, s.ExpiresIn, s.CreatedAt); err != nil {
 		return err
 	}
@@ -45,6 +47,7 @@ func (r *postgresRefreshTokenRepository) FindTokensByUserId(ctx context.Context,
 		if err := rows.Scan(&tkn.Id, &tkn.UserId, &tkn.Fingerprint, &tkn.ExpiresIn, &tkn.CreatedAt); err != nil {
 			return nil, err
 		}
+		tokens = append(tokens, tkn)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -72,12 +75,17 @@ func (r *postgresRefreshTokenRepository) DeleteById(ctx context.Context, id stri
 
 func (r *postgresRefreshTokenRepository) FindById(ctx context.Context, id string) (auth.RefreshToken, error) {
 	q := "SELECT * FROM refresh_tokens WHERE id = $1"
+	row := r.trx.Executor(ctx).QueryRow(ctx, q, id)
+	return r.scanRow(row)
+}
 
+func (r *postgresRefreshTokenRepository) scanRow(row pgx.Row) (auth.RefreshToken, error) {
 	var tkn auth.RefreshToken
-	err := r.trx.Executor(ctx).QueryRow(ctx, q, id).Scan(&tkn.Id, &tkn.UserId, &tkn.Fingerprint, &tkn.ExpiresIn, &tkn.CreatedAt)
-	if err != nil {
+	if err := row.Scan(&tkn.Id, &tkn.UserId, &tkn.Fingerprint, &tkn.ExpiresIn, &tkn.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return auth.RefreshToken{}, nil
+		}
 		return auth.RefreshToken{}, err
 	}
-
 	return tkn, nil
 }

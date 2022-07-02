@@ -12,8 +12,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func Router(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg AuthConfig) *echo.Echo {
+func Router(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg AuthCfg) *echo.Echo {
 	e := echo.New()
+
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		c.Logger().Error(err.Error())
+		e.DefaultHTTPErrorHandler(err, c)
+	}
 
 	// Transactors
 	trx := transactor.NewPgxTransactor(pgPool)
@@ -42,7 +47,7 @@ func Router(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg AuthConfig)
 	custSrvV2 := service.NewCustomerService(mongoCustRepo)
 
 	// Handlers
-	authHandler := handlers.NewAuthHandler(trx, authSrv, authCfg)
+	authHandler := handlers.NewAuthHandler(trx, authSrv, handlers.AuthCfg{Https: authCfg.Https, RefreshTokenCookie: authCfg.RefreshTokenCfg.CookieName})
 	custHandlerV1 := handlers.NewCustomerHandler(custSrvV1)
 	custHandlerV2 := handlers.NewCustomerHandler(custSrvV2)
 

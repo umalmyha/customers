@@ -38,7 +38,7 @@ func main() {
 		}
 	}()
 
-	authCfg, err := infra.BuildAuthConfig()
+	authCfg, err := infra.AuthConfig()
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -46,7 +46,7 @@ func main() {
 	start(pgPool, mongoClient, authCfg)
 }
 
-func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg infra.AuthConfig) {
+func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg infra.AuthCfg) {
 	router := infra.Router(pgPool, mongoClient, authCfg)
 
 	shutdownCh := make(chan os.Signal, 1)
