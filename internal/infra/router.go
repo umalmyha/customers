@@ -30,7 +30,7 @@ func Router(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg AuthCfg) *e
 	// Extra functionality
 	jwtIssuer := auth.NewJwtIssuer(jwtCfg.Issuer, jwtCfg.SigningMethod, jwtCfg.TimeToLive, jwtCfg.PrivateKey)
 	jwtValidator := auth.NewJwtValidator(jwtCfg.SigningMethod, jwtCfg.PublicKey)
-	rfrTokenIssuer := auth.NewRefreshTokenIssuer(rfrTokenCfg.MaxCount, rfrTokenCfg.TimeToLive)
+	rfrTokenOpts := auth.NewRefreshTokenOptions(rfrTokenCfg.MaxCount, rfrTokenCfg.TimeToLive)
 
 	// Middleware
 	authorizeMw := middleware.Authorize(jwtValidator)
@@ -42,7 +42,7 @@ func Router(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg AuthCfg) *e
 	mongoCustRepo := repository.NewMongoCustomerRepository(mongoClient)
 
 	// Services
-	authSrv := service.NewAuthService(jwtIssuer, rfrTokenIssuer, userRepo, rfrTokenRepo)
+	authSrv := service.NewAuthService(jwtIssuer, rfrTokenOpts, userRepo, rfrTokenRepo)
 	custSrvV1 := service.NewCustomerService(pgCustRepo)
 	custSrvV2 := service.NewCustomerService(mongoCustRepo)
 

@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var ErrNoRefreshTokenCookie = echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing, you are not logged in")
+
 type Identification struct {
 	Fingerprint string `json:"fingerprint"`
 }
@@ -61,7 +63,7 @@ func (h *AuthHandler) Signup(c echo.Context) error {
 func (h *AuthHandler) Login(c echo.Context) error {
 	username, password, ok := c.Request().BasicAuth()
 	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "failed to get credentials, please use basic auth")
+		return echo.NewHTTPError(http.StatusBadRequest, "failed to get credentials, use basic auth")
 	}
 
 	var ident Identification
@@ -77,7 +79,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 			At:          time.Now().UTC(),
 		})
 		if err != nil {
-			return err
+			if errors.Is(err, auth.ErrWrongEmail) || errors.Is(err, auth.ErrWrongPassword) {
+				return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
+			}
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 
 		c.SetCookie(h.refreshTokenCookie(refresh.Id, refresh.ExpiresIn))
@@ -92,7 +97,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 func (h *AuthHandler) Logout(c echo.Context) error {
 	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing - you are not logged in")
+		return ErrNoRefreshTokenCookie
 	}
 
 	if err := h.authSrv.Logout(c.Request().Context(), tknCookie.Value); err != nil {
@@ -108,7 +113,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 func (h *AuthHandler) Refresh(c echo.Context) error {
 	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing - you are not logged in")
+		return ErrNoRefreshTokenCookie
 	}
 
 	var ident Identification
@@ -123,8 +128,8 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 			At:          time.Now().UTC(),
 		})
 		if err != nil {
-			if errors.Is(err, auth.ErrRefreshTokenExpired) || errors.Is(err, auth.ErrInvalidFingerprint) {
-				return c.JSON(http.StatusBadRequest, err.Error())
+			if errors.Is(err, auth.ErrRefreshTokenExpired) || errors.Is(err, auth.ErrInvalidRefreshToken) {
+				return c.JSON(http.StatusBadRequest, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
 			}
 			return err
 		}

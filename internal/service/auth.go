@@ -2,11 +2,10 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"github.com/google/uuid"
 	"github.com/umalmyha/customers/internal/domain/auth"
 	"github.com/umalmyha/customers/internal/repository"
+	"time"
 )
 
 type AuthService interface {
@@ -17,23 +16,23 @@ type AuthService interface {
 }
 
 type authService struct {
-	userRepo       repository.UserRepository
-	rfrTknRepo     repository.RefreshTokenRepository
-	jwtIssuer      *auth.JwtIssuer
-	rfrTokenIssuer *auth.RefreshTokenIssuer
+	userRepo     repository.UserRepository
+	rfrTknRepo   repository.RefreshTokenRepository
+	jwtIssuer    *auth.JwtIssuer
+	rfrTokenOpts auth.RefreshTokenOptions
 }
 
 func NewAuthService(
 	jwtIssuer *auth.JwtIssuer,
-	rfrTokenIssuer *auth.RefreshTokenIssuer,
+	rfrTokenOpts auth.RefreshTokenOptions,
 	userRepo repository.UserRepository,
 	rfrTknRepo repository.RefreshTokenRepository,
 ) AuthService {
-	return &authService{jwtIssuer: jwtIssuer, rfrTokenIssuer: rfrTokenIssuer, userRepo: userRepo, rfrTknRepo: rfrTknRepo}
+	return &authService{jwtIssuer: jwtIssuer, rfrTokenOpts: rfrTokenOpts, userRepo: userRepo, rfrTknRepo: rfrTknRepo}
 }
 
 func (s *authService) Signup(ctx context.Context, signup auth.Signup) (auth.User, error) {
-	// TODO: Additional validations
+	// TODO: Additional validations - Step 7
 	if err := signup.ValidatePasswords(); err != nil {
 		return auth.User{}, err
 	}
@@ -62,11 +61,11 @@ func (s *authService) Login(ctx context.Context, login auth.Login) (auth.Jwt, au
 	}
 
 	if user.Id == "" {
-		return auth.Jwt{}, auth.RefreshToken{}, fmt.Errorf("unknown user with email %s", login.Email) // TODO: Raise Unauthorized
+		return auth.Jwt{}, auth.RefreshToken{}, auth.ErrWrongEmail
 	}
 
 	if err := user.VerifyPassword(login.Password); err != nil {
-		return auth.Jwt{}, auth.RefreshToken{}, err // TODO: Raise Unauthorized
+		return auth.Jwt{}, auth.RefreshToken{}, err
 	}
 
 	jwtToken, err := s.jwtIssuer.Sign(login.Email, login.At)
@@ -74,18 +73,18 @@ func (s *authService) Login(ctx context.Context, login auth.Login) (auth.Jwt, au
 		return auth.Jwt{}, auth.RefreshToken{}, err
 	}
 
-	rfrToken := s.rfrTokenIssuer.Sign(user.Id, login.Fingerprint, login.At)
-
 	userTkns, err := s.rfrTknRepo.FindTokensByUserId(ctx, user.Id)
-	if len(userTkns) >= s.rfrTokenIssuer.TokensMaxCount() {
+	if len(userTkns) >= s.rfrTokenOpts.MaxCount() {
 		if err := s.rfrTknRepo.DeleteByUserId(ctx, user.Id); err != nil {
 			return auth.Jwt{}, auth.RefreshToken{}, err
 		}
 	}
 
+	rfrToken := s.refreshToken(user.Id, login.Fingerprint, login.At)
 	if err := s.rfrTknRepo.Create(ctx, rfrToken); err != nil {
 		return auth.Jwt{}, auth.RefreshToken{}, err
 	}
+
 	return jwtToken, rfrToken, nil
 }
 
@@ -96,7 +95,7 @@ func (s *authService) Refresh(ctx context.Context, refresh auth.Refresh) (auth.J
 	}
 
 	if rfrToken.Id == "" {
-		return auth.Jwt{}, auth.RefreshToken{}, errors.New("non-existent refresh token provided")
+		return auth.Jwt{}, auth.RefreshToken{}, auth.ErrInvalidRefreshToken
 	}
 
 	if err := s.rfrTknRepo.DeleteById(ctx, rfrToken.Id); err != nil {
@@ -117,7 +116,7 @@ func (s *authService) Refresh(ctx context.Context, refresh auth.Refresh) (auth.J
 		return auth.Jwt{}, auth.RefreshToken{}, err
 	}
 
-	newRfrToken := s.rfrTokenIssuer.Sign(user.Id, refresh.Fingerprint, refresh.At)
+	newRfrToken := s.refreshToken(user.Id, refresh.Fingerprint, refresh.At)
 	if err := s.rfrTknRepo.Create(ctx, newRfrToken); err != nil {
 		return auth.Jwt{}, auth.RefreshToken{}, err
 	}
@@ -130,4 +129,14 @@ func (s *authService) Logout(ctx context.Context, tokenId string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *authService) refreshToken(userId string, fingerprint string, at time.Time) auth.RefreshToken {
+	return auth.RefreshToken{
+		Id:          uuid.NewString(),
+		UserId:      userId,
+		Fingerprint: fingerprint,
+		ExpiresIn:   s.rfrTokenOpts.TimeToLive(),
+		CreatedAt:   at,
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var ErrWrongEmail = errors.New("provided email is not registered")
 var ErrWrongPassword = errors.New("password is incorrect")
 
 type User struct {

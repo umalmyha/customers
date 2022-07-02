@@ -2,37 +2,30 @@ package auth
 
 import (
 	"errors"
-	"github.com/google/uuid"
 	"time"
 )
 
-var ErrInvalidFingerprint = errors.New("invalid fingerprint for refresh token provided")
 var ErrRefreshTokenExpired = errors.New("refresh token expired")
+var ErrInvalidRefreshToken = errors.New("invalid refresh token provided")
 
-type RefreshTokenIssuer struct {
-	maxCount          int
-	timeToLiveSeconds int
+type RefreshTokenOptions struct {
+	maxCount   int
+	ttlSeconds int
 }
 
-func NewRefreshTokenIssuer(maxCount int, ttl time.Duration) *RefreshTokenIssuer {
-	return &RefreshTokenIssuer{
-		maxCount:          maxCount,
-		timeToLiveSeconds: int(ttl.Seconds()),
+func NewRefreshTokenOptions(maxCount int, ttl time.Duration) RefreshTokenOptions {
+	return RefreshTokenOptions{
+		maxCount:   maxCount,
+		ttlSeconds: int(ttl.Seconds()),
 	}
 }
 
-func (r *RefreshTokenIssuer) Sign(userId string, fingerprint string, at time.Time) RefreshToken {
-	return RefreshToken{
-		Id:          uuid.NewString(),
-		UserId:      userId,
-		Fingerprint: fingerprint,
-		ExpiresIn:   r.timeToLiveSeconds,
-		CreatedAt:   at,
-	}
-}
-
-func (r *RefreshTokenIssuer) TokensMaxCount() int {
+func (r *RefreshTokenOptions) MaxCount() int {
 	return r.maxCount
+}
+
+func (r *RefreshTokenOptions) TimeToLive() int {
+	return r.ttlSeconds
 }
 
 type RefreshToken struct {
@@ -45,7 +38,7 @@ type RefreshToken struct {
 
 func (r RefreshToken) Verify(fingerprint string, now time.Time) error {
 	if r.Fingerprint != fingerprint {
-		return ErrInvalidFingerprint
+		return ErrInvalidRefreshToken
 	}
 
 	if r.CreatedAt.Add(time.Duration(r.ExpiresIn) * time.Second).Before(now) {
