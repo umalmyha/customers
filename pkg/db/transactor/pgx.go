@@ -52,7 +52,7 @@ func (t *pgxTransactor) WithinTransaction(ctx context.Context, txFunc func(conte
 	return t.WithinTransactionWithOptions(ctx, txFunc, pgx.TxOptions{})
 }
 
-func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc func(context.Context) error, opts pgx.TxOptions) error {
+func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc func(context.Context) error, opts pgx.TxOptions) (err error) {
 	conn, err := t.pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -64,7 +64,11 @@ func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc
 		return err
 	}
 	defer func() {
-		tx.Rollback(ctx)
+		if err != nil {
+			err = tx.Rollback(ctx)
+		} else {
+			err = tx.Commit(ctx)
+		}
 	}()
 
 	err = txFunc(withPgTx(ctx, tx))
@@ -72,9 +76,9 @@ func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
 
-	return nil
+	return err
 }

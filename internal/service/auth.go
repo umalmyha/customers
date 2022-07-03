@@ -74,6 +74,10 @@ func (s *authService) Login(ctx context.Context, login auth.Login) (auth.Jwt, au
 	}
 
 	userTkns, err := s.rfrTknRepo.FindTokensByUserId(ctx, user.Id)
+	if err != nil {
+		return auth.Jwt{}, auth.RefreshToken{}, err
+	}
+
 	if len(userTkns) >= s.rfrTokenOpts.MaxCount() {
 		if err := s.rfrTknRepo.DeleteByUserId(ctx, user.Id); err != nil {
 			return auth.Jwt{}, auth.RefreshToken{}, err
