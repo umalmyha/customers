@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/umalmyha/customers/internal/customer"
+	"github.com/umalmyha/customers/internal/domain/customer"
 	"github.com/umalmyha/customers/internal/service"
 	"net/http"
 )

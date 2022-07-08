@@ -5,7 +5,7 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/umalmyha/customers/internal/customer"
+	"github.com/umalmyha/customers/internal/domain/customer"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -68,7 +68,7 @@ func (r *postgresCustomerRepository) Create(ctx context.Context, c customer.Cust
 	q := `INSERT INTO customers(id, first_name, last_name, middle_name, email, importance, inactive)
 					  VALUES($1, $2, $3, $4, $5, $6, $7)`
 
-	_, err := r.pool.Exec(ctx, q, &c.Id, &c.FirstName, &c.LastName, &c.MiddleName, &c.Email, &c.Importance, &c.Inactive)
+	_, err := r.pool.Exec(ctx, q, c.Id, c.FirstName, c.LastName, c.MiddleName, c.Email, c.Importance, c.Inactive)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (r *postgresCustomerRepository) Create(ctx context.Context, c customer.Cust
 func (r *postgresCustomerRepository) Update(ctx context.Context, c customer.Customer) error {
 	q := `UPDATE customers SET first_name = $1, last_name = $2, middle_name = $3, email = $4, importance = $5, inactive = $6
           WHERE id = $7`
-	_, err := r.pool.Exec(ctx, q, &c.FirstName, &c.LastName, &c.MiddleName, &c.Email, &c.Importance, &c.Inactive, &c.Id)
+	_, err := r.pool.Exec(ctx, q, c.FirstName, c.LastName, c.MiddleName, c.Email, c.Importance, c.Inactive, c.Id)
 	if err != nil {
 		return err
 	}
