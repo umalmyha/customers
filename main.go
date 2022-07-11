@@ -38,7 +38,7 @@ func main() {
 
 	pgPool, err := postgresql(ctx, cfg.PostgresCfg)
 	if err != nil {
-
+		log.Fatalf(err.Error())
 	}
 	defer pgPool.Close()
 

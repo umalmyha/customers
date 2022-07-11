@@ -59,7 +59,7 @@ func Build() (Config, error) {
 	mongoPassword := os.Getenv("MONGO_PASSWORD")
 	mongoMaxPoolSize, err := strconv.Atoi(os.Getenv("MONGO_MAX_POOL_SIZE"))
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse mongo max pool size varaible - %v", err)
+		return Config{}, fmt.Errorf("failed to parse mongo max pool size varaible - %w", err)
 	}
 
 	// postgresql env variables
@@ -69,7 +69,7 @@ func Build() (Config, error) {
 	postgresSslMode := os.Getenv("POSTGRES_SLL_MODE")
 	postgresPoolMaxConn, err := strconv.Atoi(os.Getenv("POSTGRES_POOL_MAX_CONN"))
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse postgresql max pool connections varaible - %v", err)
+		return Config{}, fmt.Errorf("failed to parse postgresql max pool connections varaible - %w", err)
 	}
 
 	// JWT env variables
@@ -77,29 +77,29 @@ func Build() (Config, error) {
 
 	jwtTimeToLive, err := time.ParseDuration(os.Getenv("AUTH_JWT_TIME_TO_LIVE"))
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse JWT time to live - %v", err)
+		return Config{}, fmt.Errorf("failed to parse JWT time to live - %w", err)
 	}
 
 	jwtPrivateKeyFile := os.Getenv("AUTH_JWT_PRIVATE_KEY_FILE")
 	jwtPrivateKeyBytes, err := ioutil.ReadFile(jwtPrivateKeyFile)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to read private key file for jwt - %v", err)
+		return Config{}, fmt.Errorf("failed to read private key file for jwt - %w", err)
 	}
 
 	jwtPrivateKey, err := jwt.ParseEdPrivateKeyFromPEM(jwtPrivateKeyBytes)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse private key for jwt - %v", err)
+		return Config{}, fmt.Errorf("failed to parse private key for jwt - %w", err)
 	}
 
 	jwtPublicKeyFile := os.Getenv("AUTH_JWT_PUBLIC_KEY_FILE")
 	jwtPublicKeyBytes, err := ioutil.ReadFile(jwtPublicKeyFile)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to read public key file for jwt - %v", err)
+		return Config{}, fmt.Errorf("failed to read public key file for jwt - %w", err)
 	}
 
 	jwtPublicKey, err := jwt.ParseEdPublicKeyFromPEM(jwtPublicKeyBytes)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse public key for jwt - %v", err)
+		return Config{}, fmt.Errorf("failed to parse public key for jwt - %w", err)
 	}
 
 	jwtSigningMethod := jwt.GetSigningMethod(jwtSigningAlgorithmEd25519)
@@ -109,13 +109,13 @@ func Build() (Config, error) {
 	if os.Getenv("AUTH_REFRESH_TOKEN_MAX_COUNT") != "" {
 		maxRfrTokensCount, err = strconv.Atoi(os.Getenv("AUTH_REFRESH_TOKEN_MAX_COUNT"))
 		if err != nil {
-			return Config{}, fmt.Errorf("failed to parse max refresh tokens count - %v", err)
+			return Config{}, fmt.Errorf("failed to parse max refresh tokens count - %w", err)
 		}
 	}
 
 	rfrTokenTimeToLive, err := time.ParseDuration(os.Getenv("AUTH_REFRESH_TOKEN_TIME_TO_LIVE"))
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse refresh token time to live - %v", err)
+		return Config{}, fmt.Errorf("failed to parse refresh token time to live - %w", err)
 	}
 
 	return Config{
