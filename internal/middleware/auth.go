@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/umalmyha/customers/internal/domain/auth"
+	"github.com/umalmyha/customers/internal/model/auth"
 	"net/http"
 	"strings"
 )
