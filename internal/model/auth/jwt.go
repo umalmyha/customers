@@ -33,8 +33,8 @@ func NewJwtIssuer(issuer string, method jwt.SigningMethod, ttl time.Duration, ke
 	}
 }
 
-func (j *JwtIssuer) Sign(subj string, at time.Time) (Jwt, error) {
-	expiresAt := at.Add(j.timeToLive)
+func (j *JwtIssuer) Sign(subj string, issuedAt time.Time) (*Jwt, error) {
+	expiresAt := issuedAt.Add(j.timeToLive)
 
 	claims := JwtClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -42,7 +42,7 @@ func (j *JwtIssuer) Sign(subj string, at time.Time) (Jwt, error) {
 			Issuer:    j.issuer,
 			Subject:   subj,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(at),
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
 		},
 	}
 
@@ -50,10 +50,10 @@ func (j *JwtIssuer) Sign(subj string, at time.Time) (Jwt, error) {
 
 	signed, err := token.SignedString(j.privateKey)
 	if err != nil {
-		return Jwt{}, err
+		return nil, err
 	}
 
-	return Jwt{Signed: signed, ExpiresAt: expiresAt.Unix()}, nil
+	return &Jwt{Signed: signed, ExpiresAt: expiresAt.Unix()}, nil
 }
 
 type JwtValidator struct {
@@ -75,7 +75,7 @@ func (j *JwtValidator) Verify(rawToken string) (JwtClaims, error) {
 
 func (j *JwtValidator) keyFunc(token *jwt.Token) (any, error) {
 	if token.Method.Alg() != j.method.Alg() {
-		return nil, errors.New("failed to verify sign algrithm")
+		return nil, errors.New("failed to verify signing algorithm")
 	}
 	return j.publicKey, nil
 }

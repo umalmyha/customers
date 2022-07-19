@@ -1,155 +1,104 @@
 package handlers
 
 import (
-	"context"
-	"errors"
 	"github.com/labstack/echo/v4"
-	"github.com/umalmyha/customers/internal/domain/auth"
 	"github.com/umalmyha/customers/internal/service"
-	"github.com/umalmyha/customers/pkg/db/transactor"
 	"net/http"
 	"time"
 )
 
-var ErrNoRefreshTokenCookie = echo.NewHTTPError(http.StatusBadRequest, "refresh token cookie is missing, you are not logged in")
-
-type Identification struct {
-	Fingerprint string `json:"fingerprint"`
-}
-
-type AccessToken struct {
-	Token     string `json:"accessToken"`
-	ExpiresAt int64  `json:"expiresAt"`
-}
-
-type AuthCfg struct {
-	Https              bool
-	RefreshTokenCookie string
+type session struct {
+	Token        string `json:"accessToken"`
+	ExpiresAt    int64  `json:"expiresAt"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 type AuthHandler struct {
-	trx     transactor.Transactor
-	authSrv service.AuthService
-	authCfg AuthCfg
+	authSvc service.AuthService
 }
 
-func NewAuthHandler(trx transactor.Transactor, authSrv service.AuthService, authCfg AuthCfg) *AuthHandler {
+func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 	return &AuthHandler{
-		trx:     trx,
-		authSrv: authSrv,
-		authCfg: authCfg,
+		authSvc: authSvc,
 	}
 }
 
 func (h *AuthHandler) Signup(c echo.Context) error {
-	su := struct {
-		Email           string `json:"email"`
-		Password        string `json:"password"`
-		ConfirmPassword string `json:"confirmPassword"`
+	signup := struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}{}
-
-	if err := c.Bind(&su); err != nil {
+	if err := c.Bind(&signup); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	newUser, err := h.authSrv.Signup(c.Request().Context(), auth.Signup(su))
+	newUser, err := h.authSvc.Signup(c.Request().Context(), signup.Email, signup.Password)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
-	return c.JSON(http.StatusOK, newUser)
+	return c.JSON(http.StatusOK, &struct {
+		Id    string `json:"id"`
+		Email string `json:"email"`
+	}{
+		Id:    newUser.Id,
+		Email: newUser.Email,
+	})
 }
 
 func (h *AuthHandler) Login(c echo.Context) error {
-	username, password, ok := c.Request().BasicAuth()
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "failed to get credentials, use basic auth")
-	}
-
-	var ident Identification
-	if err := c.Bind(&ident); err != nil {
+	login := struct {
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		Fingerprint string `json:"fingerprint"`
+	}{}
+	if err := c.Bind(&login); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	return h.trx.WithinTransaction(c.Request().Context(), func(ctx context.Context) error {
-		jwt, refresh, err := h.authSrv.Login(ctx, auth.Login{
-			Email:       username,
-			Password:    password,
-			Fingerprint: ident.Fingerprint,
-			At:          time.Now().UTC(),
-		})
-		if err != nil {
-			if errors.Is(err, auth.ErrWrongEmail) || errors.Is(err, auth.ErrWrongPassword) {
-				return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
-			}
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		}
+	jwt, rfrToken, err := h.authSvc.Login(c.Request().Context(), login.Email, login.Password, login.Fingerprint, time.Now().UTC())
+	if err != nil {
+		return err
+	}
 
-		c.SetCookie(h.refreshTokenCookie(refresh.Id, refresh.ExpiresIn))
-
-		return c.JSON(http.StatusOK, &AccessToken{
-			Token:     jwt.Signed,
-			ExpiresAt: jwt.ExpiresAt,
-		})
+	return c.JSON(http.StatusOK, &session{
+		Token:        jwt.Signed,
+		ExpiresAt:    jwt.ExpiresAt,
+		RefreshToken: rfrToken.Id,
 	})
 }
 
 func (h *AuthHandler) Logout(c echo.Context) error {
-	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
-	if err != nil {
-		return ErrNoRefreshTokenCookie
+	rfrToken := struct {
+		RefreshToken string `json:"refreshToken"`
+	}{}
+	if err := c.Bind(&rfrToken); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if err := h.authSrv.Logout(c.Request().Context(), tknCookie.Value); err != nil {
+	if err := h.authSvc.Logout(c.Request().Context(), rfrToken.RefreshToken); err != nil {
 		return err
 	}
-
-	tknCookie.MaxAge = -1
-	c.SetCookie(tknCookie)
-
 	return c.NoContent(http.StatusOK)
 }
 
 func (h *AuthHandler) Refresh(c echo.Context) error {
-	tknCookie, err := c.Cookie(h.authCfg.RefreshTokenCookie)
-	if err != nil {
-		return ErrNoRefreshTokenCookie
-	}
-
-	var ident Identification
-	if err := c.Bind(&ident); err != nil {
+	refresh := struct {
+		Fingerprint  string `json:"fingerprint"`
+		RefreshToken string `json:"refreshToken"`
+	}{}
+	if err := c.Bind(&refresh); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	return h.trx.WithinTransaction(c.Request().Context(), func(ctx context.Context) error {
-		jwt, refresh, err := h.authSrv.Refresh(ctx, auth.Refresh{
-			Token:       tknCookie.Value,
-			Fingerprint: ident.Fingerprint,
-			At:          time.Now().UTC(),
-		})
-		if err != nil {
-			if errors.Is(err, auth.ErrRefreshTokenExpired) || errors.Is(err, auth.ErrInvalidRefreshToken) {
-				return c.JSON(http.StatusBadRequest, echo.NewHTTPError(http.StatusBadRequest, err.Error()))
-			}
-			return err
-		}
-
-		c.SetCookie(h.refreshTokenCookie(refresh.Id, refresh.ExpiresIn))
-
-		return c.JSON(http.StatusOK, &AccessToken{
-			Token:     jwt.Signed,
-			ExpiresAt: jwt.ExpiresAt,
-		})
-	})
-}
-
-func (h *AuthHandler) refreshTokenCookie(tknId string, expiresIn int) *http.Cookie {
-	return &http.Cookie{
-		Name:     h.authCfg.RefreshTokenCookie,
-		Value:    tknId,
-		Path:     "/api/auth",
-		MaxAge:   expiresIn,
-		HttpOnly: true,
-		Secure:   h.authCfg.Https,
+	jwt, rfrToken, err := h.authSvc.Refresh(c.Request().Context(), refresh.RefreshToken, refresh.Fingerprint, time.Now().UTC())
+	if err != nil {
+		return err
 	}
+
+	return c.JSON(http.StatusOK, &session{
+		Token:        jwt.Signed,
+		ExpiresAt:    jwt.ExpiresAt,
+		RefreshToken: rfrToken.Id,
+	})
 }

@@ -2,12 +2,12 @@ package handlers
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/umalmyha/customers/internal/domain/customer"
+	"github.com/umalmyha/customers/internal/model/customer"
 	"github.com/umalmyha/customers/internal/service"
 	"net/http"
 )
 
-type NewCustomer struct {
+type newCustomer struct {
 	FirstName  string              `json:"firstName"`
 	LastName   string              `json:"lastName"`
 	MiddleName *string             `json:"middleName"`
@@ -16,7 +16,7 @@ type NewCustomer struct {
 	Inactive   bool                `json:"inactive"`
 }
 
-type UpdateCustomer struct {
+type updateCustomer struct {
 	Id         string              `param:"id"`
 	FirstName  string              `json:"firstName"`
 	LastName   string              `json:"lastName"`
@@ -27,40 +27,36 @@ type UpdateCustomer struct {
 }
 
 type CustomerHandler struct {
-	custSrv service.CustomerService
+	customerSvc service.CustomerService
 }
 
-func NewCustomerHandler(custSrv service.CustomerService) *CustomerHandler {
-	return &CustomerHandler{custSrv: custSrv}
+func NewCustomerHandler(customerSvc service.CustomerService) *CustomerHandler {
+	return &CustomerHandler{customerSvc: customerSvc}
 }
 
 func (h *CustomerHandler) Get(c echo.Context) error {
-	cust, err := h.custSrv.FindById(c.Request().Context(), c.Param("id"))
+	customer, err := h.customerSvc.FindById(c.Request().Context(), c.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
-
-	if cust.Id == "" {
-		return c.JSON(http.StatusOK, nil)
-	}
-	return c.JSON(http.StatusOK, &cust)
+	return c.JSON(http.StatusOK, customer)
 }
 
 func (h *CustomerHandler) GetAll(c echo.Context) error {
-	customers, err := h.custSrv.FindAll(c.Request().Context())
+	customers, err := h.customerSvc.FindAll(c.Request().Context())
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	return c.JSON(http.StatusOK, customers)
 }
 
 func (h *CustomerHandler) Post(c echo.Context) error {
-	var nc NewCustomer
+	var nc newCustomer
 	if err := c.Bind(&nc); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	cust, err := h.custSrv.Create(c.Request().Context(), customer.Customer{
+	customer, err := h.customerSvc.Create(c.Request().Context(), &customer.Customer{
 		FirstName:  nc.FirstName,
 		LastName:   nc.LastName,
 		MiddleName: nc.MiddleName,
@@ -69,28 +65,28 @@ func (h *CustomerHandler) Post(c echo.Context) error {
 		Inactive:   nc.Inactive,
 	})
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
-	return c.JSON(http.StatusCreated, &cust)
+	return c.JSON(http.StatusCreated, customer)
 }
 
 func (h *CustomerHandler) Put(c echo.Context) error {
-	var uc UpdateCustomer
+	var uc updateCustomer
 	if err := c.Bind(&uc); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	cust, err := h.custSrv.Upsert(c.Request().Context(), customer.Customer(uc))
+	upsertCustomer := customer.Customer(uc)
+	customer, err := h.customerSvc.Upsert(c.Request().Context(), &upsertCustomer)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
-	return c.JSON(http.StatusOK, &cust)
+	return c.JSON(http.StatusOK, &customer)
 }
 
 func (h *CustomerHandler) DeleteById(c echo.Context) error {
-	id := c.Param("id")
-	if err := h.custSrv.DeleteById(c.Request().Context(), id); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	if err := h.customerSvc.DeleteById(c.Request().Context(), c.Param("id")); err != nil {
+		return err
 	}
 	return c.NoContent(http.StatusNoContent)
 }
