@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"github.com/labstack/echo/v4"
 	"github.com/umalmyha/customers/internal/model/auth"
 	"net/http"
@@ -17,7 +18,7 @@ func Authorize(validator *auth.JwtValidator) echo.MiddlewareFunc {
 			}
 
 			if _, err := validator.Verify(hdrSplit[1]); err != nil {
-				return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
+				return echo.NewHTTPError(http.StatusUnauthorized, fmt.Sprintf("token verification failed - %v", err))
 			}
 
 			return next(c)

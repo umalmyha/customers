@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/middleware"
@@ -16,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,9 +28,11 @@ const ShutdownTimeout = 10 * time.Second
 const ServerStartupTimeout = 10 * time.Second
 
 func main() {
+	logger := logger()
+
 	cfg, err := config.Build()
 	if err != nil {
-		log.Fatalf(err.Error())
+		logger.Fatal(err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), ServerStartupTimeout)
@@ -38,31 +40,32 @@ func main() {
 
 	pgPool, err := postgresql(ctx, cfg.PostgresCfg)
 	if err != nil {
-		log.Fatalf(err.Error())
+		logger.Fatal(err)
 	}
 	defer pgPool.Close()
 
 	mongoClient, err := mongodb(ctx, cfg.MongoCfg)
 	if err != nil {
-		log.Fatalf(err.Error())
+		logger.Fatal(err)
 	}
 	defer func() {
 		if err = mongoClient.Disconnect(ctx); err != nil {
-			log.Fatalf(err.Error())
+			logger.Fatal(err)
 		}
 	}()
 
-	start(pgPool, mongoClient, cfg.AuthCfg)
+	start(pgPool, mongoClient, logger, cfg.AuthCfg)
 }
 
-func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg config.AuthCfg) {
-	app := app(pgPool, mongoClient, authCfg)
+func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) {
+	app := app(pgPool, mongoClient, logger, authCfg)
 
 	shutdownCh := make(chan os.Signal, 1)
 	errorCh := make(chan error, 1)
 	signal.Notify(shutdownCh, os.Interrupt)
 
 	go func() {
+		logger.Infof("Starting server at port :%d", Port)
 		errorCh <- app.Start(fmt.Sprintf(":%d", Port))
 	}()
 
@@ -71,19 +74,19 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg config.AuthC
 		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
 
-		app.Logger.Infof("shutdown signal has been sent, stopping the server...")
+		logger.Infof("shutdown signal has been sent, stopping the server...")
 		if err := app.Shutdown(ctx); err != nil {
-			app.Logger.Fatalf("failed to stop server gracefully - %s", err)
+			logger.Errorf("failed to stop server gracefully - %v", err)
 		}
 	case err := <-errorCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			app.Logger.Fatalf("shutting down the server, unexpected error occurred - %s", err)
+			logger.Errorf("shutting down the server because of unexpected error - %v", err)
 		}
 	}
 }
 
 func mongodb(ctx context.Context, cfg config.MongoCfg) (*mongo.Client, error) {
-	uri := fmt.Sprintf("mongodb://%s:%s@mongo-customers:27017/?maxPoolSize=%d", cfg.User, cfg.Password, cfg.MaxPoolSize)
+	uri := fmt.Sprintf("mongodb://%s:%s@mongo-customers:%d/?maxPoolSize=%d", cfg.User, cfg.Password, cfg.Port, cfg.MaxPoolSize)
 
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
@@ -97,7 +100,7 @@ func mongodb(ctx context.Context, cfg config.MongoCfg) (*mongo.Client, error) {
 }
 
 func postgresql(ctx context.Context, cfg config.PostgresCfg) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf("user=%s password=%s host=pg-customers port=5432 dbname=%s sslmode=%s pool_max_conns=%d", cfg.User, cfg.Password, cfg.Database, cfg.SslMode, cfg.PoolMaxConn)
+	dsn := fmt.Sprintf("user=%s password=%s host=pg-customers port=%d dbname=%s sslmode=%s pool_max_conns=%d", cfg.User, cfg.Password, cfg.Port, cfg.Database, cfg.SslMode, cfg.PoolMaxConn)
 
 	pool, err := pgxpool.Connect(ctx, dsn)
 	if err != nil {
@@ -110,11 +113,19 @@ func postgresql(ctx context.Context, cfg config.PostgresCfg) (*pgxpool.Pool, err
 	return pool, nil
 }
 
-func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg config.AuthCfg) *echo.Echo {
+func logger() logrus.FieldLogger {
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetReportCaller(true)
+	logger.SetOutput(os.Stdout)
+	return logger
+}
+
+func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
 	e := echo.New()
 
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		c.Logger().Error(err.Error())
+		logger.Errorf("error occurred during request processing - %v", err)
 		e.DefaultHTTPErrorHandler(err, c)
 	}
 
@@ -136,9 +147,9 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, authCfg config.AuthCfg
 	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
 
 	// Services
-	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps)
-	customerSvcV1 := service.NewCustomerService(pgCustomerRps)
-	customerSvcV2 := service.NewCustomerService(mongoCustomerRps)
+	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
+	customerSvcV1 := service.NewCustomerService(pgCustomerRps, logger)
+	customerSvcV2 := service.NewCustomerService(mongoCustomerRps, logger)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authSvc)
