@@ -38,13 +38,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), ServerStartupTimeout)
 	defer cancel()
 
-	pgPool, err := postgresql(ctx, cfg.PostgresCfg)
+	pgPool, err := postgresql(ctx, cfg.PostgresConnString)
 	if err != nil {
 		logger.Fatal(err)
 	}
 	defer pgPool.Close()
 
-	mongoClient, err := mongodb(ctx, cfg.MongoCfg)
+	logger.Infof("MONGO CONNECTION STR: %s", cfg.MongoConnString)
+	mongoClient, err := mongodb(ctx, cfg.MongoConnString)
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -85,9 +86,7 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldL
 	}
 }
 
-func mongodb(ctx context.Context, cfg config.MongoCfg) (*mongo.Client, error) {
-	uri := fmt.Sprintf("mongodb://%s:%s@mongo-customers:%d/?maxPoolSize=%d", cfg.User, cfg.Password, cfg.Port, cfg.MaxPoolSize)
-
+func mongodb(ctx context.Context, uri string) (*mongo.Client, error) {
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
 	if err != nil {
 		return nil, err
@@ -99,10 +98,8 @@ func mongodb(ctx context.Context, cfg config.MongoCfg) (*mongo.Client, error) {
 	return client, nil
 }
 
-func postgresql(ctx context.Context, cfg config.PostgresCfg) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf("user=%s password=%s host=pg-customers port=%d dbname=%s sslmode=%s pool_max_conns=%d", cfg.User, cfg.Password, cfg.Port, cfg.Database, cfg.SslMode, cfg.PoolMaxConn)
-
-	pool, err := pgxpool.Connect(ctx, dsn)
+func postgresql(ctx context.Context, uri string) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.Connect(ctx, uri)
 	if err != nil {
 		return nil, fmt.Errorf("failed to establish connection to db - %w", err)
 	}

@@ -12,22 +12,6 @@ import (
 
 const jwtSigningAlgorithmEd25519 = "EdDSA"
 
-type MongoCfg struct {
-	User        string `env:"MONGO_USER"`
-	Password    string `env:"MONGO_PASSWORD"`
-	Port        int    `env:"MONGO_PORT"`
-	MaxPoolSize int    `env:"MONGO_MAX_POOL_SIZE" envDefault:"100"`
-}
-
-type PostgresCfg struct {
-	User        string `env:"POSTGRES_USER"`
-	Password    string `env:"POSTGRES_PASSWORD"`
-	Database    string `env:"POSTGRES_DB"`
-	SslMode     string `env:"POSTGRES_SLL_MODE" envDefault:"disable"`
-	Port        int    `env:"POSTGRES_PORT"`
-	PoolMaxConn int    `env:"POSTGRES_POOL_MAX_CONN" envDefault:"100"`
-}
-
 type JwtCfg struct {
 	Issuer        string        `env:"AUTH_JWT_ISSUER" envDefault:"customers-api"`
 	TimeToLive    time.Duration `env:"AUTH_JWT_TIME_TO_LIVE" envDefault:"10m"`
@@ -47,9 +31,9 @@ type AuthCfg struct {
 }
 
 type Config struct {
-	MongoCfg    MongoCfg
-	PostgresCfg PostgresCfg
-	AuthCfg     AuthCfg
+	PostgresConnString string `env:"POSTGRES_URL"`
+	MongoConnString    string `env:"MONGO_URL"`
+	AuthCfg            AuthCfg
 }
 
 func Build() (Config, error) {
