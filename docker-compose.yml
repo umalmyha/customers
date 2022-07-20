@@ -7,15 +7,8 @@ services:
       dockerfile: Dockerfile.app
     image: umalmyha/customers
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_SLL_MODE=${POSTGRES_SLL_MODE}
-      - POSTGRES_POOL_MAX_CONN=${POSTGRES_POOL_MAX_CONN}
-      - MONGO_USER=${MONGO_USER}
-      - MONGO_PASSWORD=${MONGO_PASSWORD}
-      - MONGO_MAX_POOL_SIZE=${MONGO_MAX_POOL_SIZE}
-      - AUTH_HTTPS=${AUTH_HTTPS}
+      - POSTGRES_URL=${POSTGRES_URL}
+      - MONGO_URL=${MONGO_URL}
       - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER}
       - AUTH_JWT_TIME_TO_LIVE=${AUTH_JWT_TIME_TO_LIVE}
       - AUTH_JWT_PRIVATE_KEY_FILE=${AUTH_JWT_PRIVATE_KEY_FILE}
@@ -46,8 +39,8 @@ services:
   mongo-customers:
     image: "mongo:latest"
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     ports:
       - "27017:27017"
     volumes:
@@ -60,10 +53,7 @@ services:
     image: umalmyha/migrate
     volumes:
       - ./migrations:/migrations
-    command: bash -c "
-      ./wait-for-it.sh pg-customers:5432 --timeout=5
-      && migrate -path /migrations -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pg-customers:5432/${POSTGRES_DB}?sslmode=${POSTGRES_SLL_MODE} up
-      "
+    command: bash -c "./wait-for-it.sh pg-customers:5432 --timeout=5 && migrate -path /migrations -database ${POSTGRES_URL} up"
     depends_on:
       - pg-customers
 
