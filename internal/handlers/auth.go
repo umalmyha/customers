@@ -25,11 +25,15 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 
 func (h *AuthHandler) Signup(c echo.Context) error {
 	signup := struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email    string `json:"email" validate:"required,email"`
+		Password string `json:"password" validate:"required,nospace,min=4,max=24"`
 	}{}
 	if err := c.Bind(&signup); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := c.Validate(&signup); err != nil {
+		return err
 	}
 
 	newUser, err := h.authSvc.Signup(c.Request().Context(), signup.Email, signup.Password)
@@ -48,12 +52,16 @@ func (h *AuthHandler) Signup(c echo.Context) error {
 
 func (h *AuthHandler) Login(c echo.Context) error {
 	login := struct {
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		Fingerprint string `json:"fingerprint"`
+		Email       string `json:"email" validate:"required,email"`
+		Password    string `json:"password" validate:"required"`
+		Fingerprint string `json:"fingerprint" validate:"required"`
 	}{}
 	if err := c.Bind(&login); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := c.Validate(&login); err != nil {
+		return err
 	}
 
 	jwt, rfrToken, err := h.authSvc.Login(c.Request().Context(), login.Email, login.Password, login.Fingerprint, time.Now().UTC())
@@ -70,10 +78,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 func (h *AuthHandler) Logout(c echo.Context) error {
 	rfrToken := struct {
-		RefreshToken string `json:"refreshToken"`
+		RefreshToken string `json:"refreshToken" validate:"required,uuid"`
 	}{}
 	if err := c.Bind(&rfrToken); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := c.Validate(&rfrToken); err != nil {
+		return err
 	}
 
 	if err := h.authSvc.Logout(c.Request().Context(), rfrToken.RefreshToken); err != nil {
@@ -84,11 +96,15 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 func (h *AuthHandler) Refresh(c echo.Context) error {
 	refresh := struct {
-		Fingerprint  string `json:"fingerprint"`
-		RefreshToken string `json:"refreshToken"`
+		Fingerprint  string `json:"fingerprint" validate:"required"`
+		RefreshToken string `json:"refreshToken" validate:"required,uuid"`
 	}{}
 	if err := c.Bind(&refresh); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if err := c.Validate(&refresh); err != nil {
+		return err
 	}
 
 	jwt, rfrToken, err := h.authSvc.Refresh(c.Request().Context(), refresh.RefreshToken, refresh.Fingerprint, time.Now().UTC())

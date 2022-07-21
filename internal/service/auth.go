@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -50,7 +49,16 @@ func NewAuthService(
 }
 
 func (s *authService) Signup(ctx context.Context, email string, password string) (*auth.User, error) {
-	// TODO: Additional validations - Step 7
+	existingUser, err := s.userRps.FindByEmail(ctx, email)
+	if err != nil {
+		s.logger.Errorf("failed to check user %s presence, read failed - %v", email, err)
+		return nil, err
+	}
+
+	if existingUser != nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("user with email %s already exist", email))
+	}
+
 	hash, err := auth.GeneratePasswordHash(password)
 	if err != nil {
 		s.logger.Errorf("password generation failed for user %s - %v", email, err)
@@ -129,7 +137,7 @@ func (s *authService) Refresh(ctx context.Context, rfrTokenId string, fingerprin
 
 	if rfrToken == nil {
 		s.logger.Errorf("refresh token %s doesn't exist", rfrTokenId)
-		return nil, nil, errors.New("invalid refresh token provided")
+		return nil, nil, echo.NewHTTPError(http.StatusBadRequest, "invalid refresh token provided")
 	}
 
 	if err := s.rfrTknRps.DeleteById(ctx, rfrToken.Id); err != nil {
