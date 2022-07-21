@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-playground/locales/en"
+	ut "github.com/go-playground/universal-translator"
+	"github.com/go-playground/validator/v10"
+	enTrans "github.com/go-playground/validator/v10/translations/en"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
@@ -13,6 +17,7 @@ import (
 	"github.com/umalmyha/customers/internal/model/auth"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
+	"github.com/umalmyha/customers/internal/validation"
 	"github.com/umalmyha/customers/pkg/db/transactor"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -20,6 +25,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"reflect"
+	"strings"
 	"time"
 )
 
@@ -44,7 +51,6 @@ func main() {
 	}
 	defer pgPool.Close()
 
-	logger.Infof("MONGO CONNECTION STR: %s", cfg.MongoConnString)
 	mongoClient, err := mongodb(ctx, cfg.MongoConnString)
 	if err != nil {
 		logger.Fatal(err)
@@ -121,8 +127,24 @@ func logger() logrus.FieldLogger {
 func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
 	e := echo.New()
 
+	validator, err := echoValidator()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	e.Validator = validator
+
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		logger.Errorf("error occurred during request processing - %v", err)
+
+		var pldErr *validation.PayloadError
+		if errors.As(err, &pldErr) {
+			err = c.JSON(http.StatusBadRequest, pldErr)
+			if err == nil {
+				return
+			}
+		}
+
 		e.DefaultHTTPErrorHandler(err, c)
 	}
 
@@ -187,4 +209,31 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLog
 	}
 
 	return e
+}
+
+func echoValidator() (echo.Validator, error) {
+	validator := validator.New()
+
+	// store json tag fields, so can be handled on UI properly in struct PayloadErr -> field Field
+	validator.RegisterTagNameFunc(func(field reflect.StructField) string {
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonName == "" || jsonName == "-" {
+			return field.Name
+		}
+		return jsonName
+	})
+
+	en := en.New()
+	unvTranslator := ut.New(en, en)
+	translator, ok := unvTranslator.GetTranslator("en")
+	if !ok {
+		return nil, errors.New("failed to find translator for en locale")
+	}
+
+	// register default translations
+	if err := enTrans.RegisterDefaultTranslations(validator, translator); err != nil {
+		return nil, fmt.Errorf("failed to register en translations - %w", err)
+	}
+
+	return validation.Echo(validator, translator), nil
 }

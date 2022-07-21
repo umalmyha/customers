@@ -7,23 +7,22 @@ import (
 	"net/http"
 )
 
+type identifier struct {
+	Id string `json:"id" validate:"required,uuid"`
+}
+
 type newCustomer struct {
-	FirstName  string              `json:"firstName"`
-	LastName   string              `json:"lastName"`
+	FirstName  string              `json:"firstName" validate:"required"`
+	LastName   string              `json:"lastName" validate:"required"`
 	MiddleName *string             `json:"middleName"`
-	Email      string              `json:"email"`
-	Importance customer.Importance `json:"importance"`
+	Email      string              `json:"email" validate:"required,email"`
+	Importance customer.Importance `json:"importance" validate:"required,oneof=1 2 3 4"`
 	Inactive   bool                `json:"inactive"`
 }
 
 type updateCustomer struct {
-	Id         string              `param:"id"`
-	FirstName  string              `json:"firstName"`
-	LastName   string              `json:"lastName"`
-	MiddleName *string             `json:"middleName"`
-	Email      string              `json:"email"`
-	Importance customer.Importance `json:"importance"`
-	Inactive   bool                `json:"inactive"`
+	Id string `param:"id" validate:"required,uuid"`
+	newCustomer
 }
 
 type CustomerHandler struct {
@@ -35,10 +34,16 @@ func NewCustomerHandler(customerSvc service.CustomerService) *CustomerHandler {
 }
 
 func (h *CustomerHandler) Get(c echo.Context) error {
-	customer, err := h.customerSvc.FindById(c.Request().Context(), c.Param("id"))
+	id := c.Param("id")
+	if err := c.Validate(&identifier{Id: id}); err != nil {
+		return err
+	}
+
+	customer, err := h.customerSvc.FindById(c.Request().Context(), id)
 	if err != nil {
 		return err
 	}
+
 	return c.JSON(http.StatusOK, customer)
 }
 
@@ -56,6 +61,10 @@ func (h *CustomerHandler) Post(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	if err := c.Validate(&nc); err != nil {
+		return err
+	}
+
 	customer, err := h.customerSvc.Create(c.Request().Context(), &customer.Customer{
 		FirstName:  nc.FirstName,
 		LastName:   nc.LastName,
@@ -67,6 +76,7 @@ func (h *CustomerHandler) Post(c echo.Context) error {
 	if err != nil {
 		return err
 	}
+
 	return c.JSON(http.StatusCreated, customer)
 }
 
@@ -76,17 +86,35 @@ func (h *CustomerHandler) Put(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	upsertCustomer := customer.Customer(uc)
-	customer, err := h.customerSvc.Upsert(c.Request().Context(), &upsertCustomer)
+	if err := c.Validate(&uc); err != nil {
+		return err
+	}
+
+	customer, err := h.customerSvc.Upsert(c.Request().Context(), &customer.Customer{
+		Id:         uc.Id,
+		FirstName:  uc.FirstName,
+		LastName:   uc.LastName,
+		MiddleName: uc.MiddleName,
+		Email:      uc.Email,
+		Importance: uc.Importance,
+		Inactive:   uc.Inactive,
+	})
 	if err != nil {
 		return err
 	}
+
 	return c.JSON(http.StatusOK, &customer)
 }
 
 func (h *CustomerHandler) DeleteById(c echo.Context) error {
-	if err := h.customerSvc.DeleteById(c.Request().Context(), c.Param("id")); err != nil {
+	id := c.Param("id")
+	if err := c.Validate(&identifier{Id: id}); err != nil {
 		return err
 	}
+
+	if err := h.customerSvc.DeleteById(c.Request().Context(), id); err != nil {
+		return err
+	}
+
 	return c.NoContent(http.StatusNoContent)
 }
