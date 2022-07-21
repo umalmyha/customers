@@ -26,7 +26,7 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 func (h *AuthHandler) Signup(c echo.Context) error {
 	signup := struct {
 		Email    string `json:"email" validate:"required,email"`
-		Password string `json:"password" validate:"required,nospace,min=4,max=24"`
+		Password string `json:"password" validate:"required,min=4,max=24"`
 	}{}
 	if err := c.Bind(&signup); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

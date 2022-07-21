@@ -223,21 +223,6 @@ func echoValidator() (echo.Validator, error) {
 		return jsonName
 	})
 
-	// new validation to prevent spaces in string (e. g. password field)
-	err := valid.RegisterValidation("nospace", func(field validator.FieldLevel) bool {
-		f := field.Field()
-		if !f.CanInterface() {
-			return true
-		}
-		if s, ok := f.Interface().(string); ok {
-			return !strings.Contains(s, " ")
-		}
-		return true
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	en := en.New()
 	unvTrans := ut.New(en, en)
 	trans, ok := unvTrans.GetTranslator("en")
@@ -248,20 +233,6 @@ func echoValidator() (echo.Validator, error) {
 	// register default translations
 	if err := enTrans.RegisterDefaultTranslations(valid, trans); err != nil {
 		return nil, fmt.Errorf("failed to register en translations - %w", err)
-	}
-
-	// register translation for new nospace tag
-	err = valid.RegisterTranslation("nospace", trans, func(ut ut.Translator) error {
-		return ut.Add("nospace", "spaces not allowed for {0}", false)
-	}, func(ut ut.Translator, fe validator.FieldError) string {
-		text, err := ut.T("nospace", fe.Field())
-		if err != nil {
-			return "no spaces allowed"
-		}
-		return text
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	return validation.Echo(valid, trans), nil
