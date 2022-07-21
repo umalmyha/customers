@@ -212,10 +212,10 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLog
 }
 
 func echoValidator() (echo.Validator, error) {
-	valid := validator.New()
+	validator := validator.New()
 
 	// store json tag fields, so can be handled on UI properly in struct PayloadErr -> field Field
-	valid.RegisterTagNameFunc(func(field reflect.StructField) string {
+	validator.RegisterTagNameFunc(func(field reflect.StructField) string {
 		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
 		if jsonName == "" || jsonName == "-" {
 			return field.Name
@@ -224,16 +224,16 @@ func echoValidator() (echo.Validator, error) {
 	})
 
 	en := en.New()
-	unvTrans := ut.New(en, en)
-	trans, ok := unvTrans.GetTranslator("en")
+	unvTranslator := ut.New(en, en)
+	translator, ok := unvTranslator.GetTranslator("en")
 	if !ok {
 		return nil, errors.New("failed to find translator for en locale")
 	}
 
 	// register default translations
-	if err := enTrans.RegisterDefaultTranslations(valid, trans); err != nil {
+	if err := enTrans.RegisterDefaultTranslations(validator, translator); err != nil {
 		return nil, fmt.Errorf("failed to register en translations - %w", err)
 	}
 
-	return validation.Echo(valid, trans), nil
+	return validation.Echo(validator, translator), nil
 }

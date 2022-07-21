@@ -8,7 +8,7 @@ import (
 )
 
 type identifier struct {
-	Id string `validate:"required,uuid"`
+	Id string `json:"id" validate:"required,uuid"`
 }
 
 type newCustomer struct {
