@@ -10,6 +10,7 @@ import (
 	enTrans "github.com/go-playground/validator/v10/translations/en"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/labstack/echo/v4"
+	echoMw "github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
@@ -174,6 +175,17 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLog
 	authHandler := handlers.NewAuthHandler(authSvc)
 	customerHandlerV1 := handlers.NewCustomerHandler(customerSvcV1)
 	customerHandlerV2 := handlers.NewCustomerHandler(customerSvcV2)
+	imageHandler := handlers.NewImageHandler()
+
+	images := e.Group("/images")
+	{
+		images.POST("/upload", imageHandler.Upload)
+		images.GET("/:name/download", imageHandler.Download)
+		images.Use(echoMw.StaticWithConfig(echoMw.StaticConfig{
+			Root:   "images",
+			Browse: true,
+		}))
+	}
 
 	// API routes
 	api := e.Group("/api")

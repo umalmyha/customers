@@ -23,6 +23,8 @@ services:
       - mongo-customers
     ports:
       - "3000:3000"
+    volumes:
+      - customer-images:/app/images
 
   pg-customers:
     image: "postgres:latest"
@@ -60,3 +62,4 @@ services:
 volumes:
   pgcustomers:
   mongocustomers:
+  customer-images:
