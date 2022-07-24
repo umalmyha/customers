@@ -30,9 +30,18 @@ type AuthCfg struct {
 	RefreshTokenCfg RefreshTokenCfg
 }
 
+type RedisCfg struct {
+	Addr       string `env:"REDIS_ADDR"`
+	Password   string `env:"REDIS_PASSWORD"`
+	Db         int    `env:"REDIS_DB" envDefault:"0"`
+	MaxRetries int    `env:"REDIS_MAX_RETRIES" envDefault:"3"`
+	PoolSize   int    `env:"REDIS_POOL_SIZE" envDefault:"50"`
+}
+
 type Config struct {
 	PostgresConnString string `env:"POSTGRES_URL"`
 	MongoConnString    string `env:"MONGO_URL"`
+	RedisCfg           RedisCfg
 	AuthCfg            AuthCfg
 }
 
