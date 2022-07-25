@@ -9,6 +9,11 @@ services:
     environment:
       - POSTGRES_URL=${POSTGRES_URL}
       - MONGO_URL=${MONGO_URL}
+      - REDIS_ADDR=${REDIS_ADDR}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB}
+      - REDIS_MAX_RETRIES=${REDIS_MAX_RETRIES}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE}
       - AUTH_JWT_ISSUER=${AUTH_JWT_ISSUER}
       - AUTH_JWT_TIME_TO_LIVE=${AUTH_JWT_TIME_TO_LIVE}
       - AUTH_JWT_PRIVATE_KEY_FILE=${AUTH_JWT_PRIVATE_KEY_FILE}
@@ -21,6 +26,7 @@ services:
       - pg-customers
       - migrate
       - mongo-customers
+      - redis-customers
     ports:
       - "3000:3000"
     volumes:
@@ -37,6 +43,16 @@ services:
     restart: always
     volumes:
       - pgcustomers:/var/lib/postgresql/data
+
+  redis-customers:
+    image: "redis:latest"
+    command:
+      --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - customer-redis:/data
+
 
   mongo-customers:
     image: "mongo:latest"
@@ -63,3 +79,4 @@ volumes:
   pgcustomers:
   mongocustomers:
   customer-images:
+  customer-redis:

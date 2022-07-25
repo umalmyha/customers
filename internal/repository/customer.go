@@ -5,6 +5,8 @@ import (
 	"errors"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/sirupsen/logrus"
+	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/model/customer"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -156,4 +158,59 @@ func (r *mongoCustomerRepository) DeleteById(ctx context.Context, id string) err
 		return err
 	}
 	return nil
+}
+
+type redisCachedCustomerRepository struct {
+	logger logrus.FieldLogger
+	cache  cache.CustomerCache
+	CustomerRepository
+}
+
+func NewRedisCachedCustomerRepository(logger logrus.FieldLogger, cache cache.CustomerCache, primaryRps CustomerRepository) CustomerRepository {
+	return &redisCachedCustomerRepository{
+		logger:             logger,
+		cache:              cache,
+		CustomerRepository: primaryRps,
+	}
+}
+
+func (r *redisCachedCustomerRepository) FindById(ctx context.Context, id string) (*customer.Customer, error) {
+	c, err := r.cache.FindById(ctx, id)
+	if err != nil {
+		r.logger.Errorf("bypassing cache: failed to access cache for reading customer %s - %v", id, err)
+	}
+
+	if c != nil {
+		return c, nil
+	}
+
+	c, err = r.CustomerRepository.FindById(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if c == nil {
+		return nil, nil
+	}
+
+	if err := r.cache.Create(ctx, c); err != nil {
+		r.logger.Errorf("failed to cache customer %s - %v", id, err)
+	}
+	return c, nil
+}
+
+func (r *redisCachedCustomerRepository) Update(ctx context.Context, c *customer.Customer) error {
+	if err := r.cache.DeleteById(ctx, c.Id); err != nil {
+		r.logger.Errorf("failed to access cache for customer %s deletion - %v", c.Id, err)
+		return err
+	}
+	return r.CustomerRepository.Update(ctx, c)
+}
+
+func (r *redisCachedCustomerRepository) DeleteById(ctx context.Context, id string) error {
+	if err := r.cache.DeleteById(ctx, id); err != nil {
+		r.logger.Errorf("failed to access cache for customer %s deletion - %v", id, err)
+		return err
+	}
+	return r.CustomerRepository.DeleteById(ctx, id)
 }

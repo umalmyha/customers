@@ -8,10 +8,12 @@ import (
 	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
 	enTrans "github.com/go-playground/validator/v10/translations/en"
+	"github.com/go-redis/redis/v9"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/middleware"
@@ -52,6 +54,12 @@ func main() {
 	}
 	defer pgPool.Close()
 
+	redisClient, err := redisClient(ctx, cfg.RedisCfg)
+	if err != nil {
+		logger.Fatal(err)
+	}
+	defer redisClient.Close()
+
 	mongoClient, err := mongodb(ctx, cfg.MongoConnString)
 	if err != nil {
 		logger.Fatal(err)
@@ -62,11 +70,11 @@ func main() {
 		}
 	}()
 
-	start(pgPool, mongoClient, logger, cfg.AuthCfg)
+	start(pgPool, mongoClient, redisClient, logger, cfg.AuthCfg)
 }
 
-func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) {
-	app := app(pgPool, mongoClient, logger, authCfg)
+func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) {
+	app := app(pgPool, mongoClient, redisClient, logger, authCfg)
 
 	shutdownCh := make(chan os.Signal, 1)
 	errorCh := make(chan error, 1)
@@ -117,6 +125,21 @@ func postgresql(ctx context.Context, uri string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+func redisClient(ctx context.Context, cfg config.RedisCfg) (*redis.Client, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:       cfg.Addr,
+		Password:   cfg.Password,
+		DB:         cfg.Db,
+		MaxRetries: cfg.MaxRetries,
+		PoolSize:   cfg.PoolSize,
+	})
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("didn't get response from redis after sending ping request - %w", err)
+	}
+	return client, nil
+}
+
 func logger() logrus.FieldLogger {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
@@ -125,7 +148,7 @@ func logger() logrus.FieldLogger {
 	return logger
 }
 
-func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
+func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
 	e := echo.New()
 
 	validator, err := echoValidator()
@@ -160,16 +183,21 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, logger logrus.FieldLog
 	// Middleware
 	authorizeMw := middleware.Authorize(jwtValidator)
 
+	// caches
+	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
+
 	// Repositories
 	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
 	rfrTokenRps := repository.NewPostgresRefreshTokenRepository(pgxTxExecutor)
 	pgCustomerRps := repository.NewPostgresCustomerRepository(pgPool)
 	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
+	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, pgCustomerRps)
+	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, mongoCustomerRps)
 
 	// Services
 	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
-	customerSvcV1 := service.NewCustomerService(pgCustomerRps, logger)
-	customerSvcV2 := service.NewCustomerService(mongoCustomerRps, logger)
+	customerSvcV1 := service.NewCustomerService(pgCachedCustomerRps, logger)
+	customerSvcV2 := service.NewCustomerService(mongoCachedCustomerRps, logger)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authSvc)
