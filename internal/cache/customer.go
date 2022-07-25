@@ -14,8 +14,8 @@ const cachedCustomerTimeToLive = 10 * time.Minute
 
 type CustomerCache interface {
 	FindById(context.Context, string) (*customer.Customer, error)
-	EvictById(context.Context, string) error
-	Cache(context.Context, *customer.Customer) error
+	DeleteById(context.Context, string) error
+	Create(context.Context, *customer.Customer) error
 }
 
 type redisCustomerCache struct {
@@ -43,14 +43,14 @@ func (r *redisCustomerCache) FindById(ctx context.Context, id string) (*customer
 	return &c, nil
 }
 
-func (r *redisCustomerCache) EvictById(ctx context.Context, id string) error {
+func (r *redisCustomerCache) DeleteById(ctx context.Context, id string) error {
 	if _, err := r.client.Del(ctx, r.key(id)).Result(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *redisCustomerCache) Cache(ctx context.Context, c *customer.Customer) error {
+func (r *redisCustomerCache) Create(ctx context.Context, c *customer.Customer) error {
 	encoded, err := msgpack.Marshal(c)
 	if err != nil {
 		return err

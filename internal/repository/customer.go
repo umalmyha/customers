@@ -193,23 +193,23 @@ func (r *redisCachedCustomerRepository) FindById(ctx context.Context, id string)
 		return nil, nil
 	}
 
-	if err := r.cache.Cache(ctx, c); err != nil {
+	if err := r.cache.Create(ctx, c); err != nil {
 		r.logger.Errorf("failed to cache customer %s - %v", id, err)
 	}
 	return c, nil
 }
 
 func (r *redisCachedCustomerRepository) Update(ctx context.Context, c *customer.Customer) error {
-	if err := r.cache.EvictById(ctx, c.Id); err != nil {
-		r.logger.Errorf("failed to access cache for customer %s eviction - %v", c.Id, err)
+	if err := r.cache.DeleteById(ctx, c.Id); err != nil {
+		r.logger.Errorf("failed to access cache for customer %s deletion - %v", c.Id, err)
 		return err
 	}
 	return r.CustomerRepository.Update(ctx, c)
 }
 
 func (r *redisCachedCustomerRepository) DeleteById(ctx context.Context, id string) error {
-	if err := r.cache.EvictById(ctx, id); err != nil {
-		r.logger.Errorf("failed to access cache for customer %s eviction - %v", id, err)
+	if err := r.cache.DeleteById(ctx, id); err != nil {
+		r.logger.Errorf("failed to access cache for customer %s deletion - %v", id, err)
 		return err
 	}
 	return r.CustomerRepository.DeleteById(ctx, id)
