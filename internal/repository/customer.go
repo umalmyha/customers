@@ -3,19 +3,14 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
-	"github.com/go-redis/redis/v9"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/sirupsen/logrus"
+	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/model/customer"
-	"github.com/vmihailenco/msgpack/v5"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"time"
 )
-
-const cachedCustomerTimeToLive = 15 * time.Minute
 
 type CustomerRepository interface {
 	FindById(context.Context, string) (*customer.Customer, error)
@@ -166,21 +161,21 @@ func (r *mongoCustomerRepository) DeleteById(ctx context.Context, id string) err
 }
 
 type redisCachedCustomerRepository struct {
-	logger      logrus.FieldLogger
-	redisClient *redis.Client
+	logger logrus.FieldLogger
+	cache  cache.CustomerCache
 	CustomerRepository
 }
 
-func NewRedisCachedCustomerRepository(logger logrus.FieldLogger, redisClient *redis.Client, primaryRps CustomerRepository) CustomerRepository {
+func NewRedisCachedCustomerRepository(logger logrus.FieldLogger, cache cache.CustomerCache, primaryRps CustomerRepository) CustomerRepository {
 	return &redisCachedCustomerRepository{
 		logger:             logger,
-		redisClient:        redisClient,
+		cache:              cache,
 		CustomerRepository: primaryRps,
 	}
 }
 
 func (r *redisCachedCustomerRepository) FindById(ctx context.Context, id string) (*customer.Customer, error) {
-	c, err := r.findCached(ctx, id)
+	c, err := r.cache.FindById(ctx, id)
 	if err != nil {
 		r.logger.Errorf("bypassing cache: failed to access cache for reading customer %s - %v", id, err)
 	}
@@ -198,15 +193,14 @@ func (r *redisCachedCustomerRepository) FindById(ctx context.Context, id string)
 		return nil, nil
 	}
 
-	if err := r.cache(ctx, c); err != nil {
+	if err := r.cache.Cache(ctx, c); err != nil {
 		r.logger.Errorf("failed to cache customer %s - %v", id, err)
-		return nil, err
 	}
 	return c, nil
 }
 
 func (r *redisCachedCustomerRepository) Update(ctx context.Context, c *customer.Customer) error {
-	if err := r.evict(ctx, c.Id); err != nil {
+	if err := r.cache.EvictById(ctx, c.Id); err != nil {
 		r.logger.Errorf("failed to access cache for customer %s eviction - %v", c.Id, err)
 		return err
 	}
@@ -214,50 +208,9 @@ func (r *redisCachedCustomerRepository) Update(ctx context.Context, c *customer.
 }
 
 func (r *redisCachedCustomerRepository) DeleteById(ctx context.Context, id string) error {
-	if err := r.evict(ctx, id); err != nil {
+	if err := r.cache.EvictById(ctx, id); err != nil {
 		r.logger.Errorf("failed to access cache for customer %s eviction - %v", id, err)
 		return err
 	}
 	return r.CustomerRepository.DeleteById(ctx, id)
-}
-
-func (r *redisCachedCustomerRepository) cache(ctx context.Context, c *customer.Customer) error {
-	encoded, err := msgpack.Marshal(c)
-	if err != nil {
-		return err
-	}
-
-	_, err = r.redisClient.SetNX(ctx, r.key(c.Id), encoded, cachedCustomerTimeToLive).Result()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *redisCachedCustomerRepository) findCached(ctx context.Context, id string) (*customer.Customer, error) {
-	res, err := r.redisClient.Get(ctx, r.key(id)).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var c customer.Customer
-	if err := msgpack.Unmarshal([]byte(res), &c); err != nil {
-		return nil, err
-	}
-
-	return &c, nil
-}
-
-func (r *redisCachedCustomerRepository) evict(ctx context.Context, id string) error {
-	if _, err := r.redisClient.Del(ctx, r.key(id)).Result(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *redisCachedCustomerRepository) key(id string) string {
-	return fmt.Sprintf("customer:%s", id)
 }

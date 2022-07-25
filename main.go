@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/middleware"
@@ -182,13 +183,16 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Cli
 	// Middleware
 	authorizeMw := middleware.Authorize(jwtValidator)
 
+	// caches
+	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
+
 	// Repositories
 	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
 	rfrTokenRps := repository.NewPostgresRefreshTokenRepository(pgxTxExecutor)
 	pgCustomerRps := repository.NewPostgresCustomerRepository(pgPool)
 	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
-	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisClient, pgCustomerRps)
-	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisClient, mongoCustomerRps)
+	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, pgCustomerRps)
+	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, mongoCustomerRps)
 
 	// Services
 	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
