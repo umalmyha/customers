@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v9"
+	"github.com/sirupsen/logrus"
 	"github.com/umalmyha/customers/internal/model/customer"
 	"github.com/vmihailenco/msgpack/v5"
-	"strconv"
 	"time"
 )
 
 const (
 	cachedCustomerTimeToLive = 3 * time.Minute
-	cachedCustomersStream    = "customers"
+	customerStreamName       = "customers-stream"
+	customerStreamMaxLen     = 1000
+	streamCacheWriteTimeout  = 5 * time.Second
 )
 
 type CustomerCache interface {
@@ -80,22 +82,16 @@ func NewRedisStreamCustomerCache(client *redis.Client) CustomerCache {
 }
 
 func (r *redisStreamCustomerCache) FindById(ctx context.Context, id string) (*customer.Customer, error) {
-	msg, err := r.findStreamMessageById(ctx, id)
+	value, err := r.client.Get(ctx, streamedCustomerKey(id)).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	if msg == nil {
-		return nil, nil
-	}
-
-	encValue, ok := msg.Values["value"].(string)
-	if !ok {
-		return nil, errors.New("failed to parse customer encoded in message")
-	}
-
 	var c customer.Customer
-	if err := msgpack.Unmarshal([]byte(encValue), &c); err != nil {
+	if err := msgpack.Unmarshal([]byte(value), &c); err != nil {
 		return nil, err
 	}
 
@@ -103,69 +99,140 @@ func (r *redisStreamCustomerCache) FindById(ctx context.Context, id string) (*cu
 }
 
 func (r *redisStreamCustomerCache) Create(ctx context.Context, c *customer.Customer) error {
-	encValue, err := msgpack.Marshal(c)
+	value, err := msgpack.Marshal(c)
 	if err != nil {
 		return err
 	}
 
-	now := r.now()
-	minId := r.minId(now)
-	id := fmt.Sprintf("%s-*", strconv.FormatInt(now.Unix(), 10))
-
-	_, err = r.client.XAdd(ctx, &redis.XAddArgs{
-		Stream: cachedCustomersStream,
-		MinID:  minId,
-		ID:     id,
-		Values: map[string]any{
-			"id":    c.Id,
-			"value": encValue,
-		},
-	}).Result()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return r.sendMessage(ctx, map[string]any{
+		"op":    "create",
+		"id":    c.Id,
+		"value": value,
+	})
 }
 
 func (r *redisStreamCustomerCache) DeleteById(ctx context.Context, id string) error {
-	msg, err := r.findStreamMessageById(ctx, id)
+	return r.sendMessage(ctx, map[string]any{
+		"op": "delete",
+		"id": id,
+	})
+}
+
+func (r *redisStreamCustomerCache) sendMessage(ctx context.Context, values any) error {
+	return r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: customerStreamName,
+		MaxLen: customerStreamMaxLen,
+		Approx: true,
+		ID:     "*",
+		Values: values,
+	}).Err()
+}
+
+type redisCustomerCacheUpdater struct {
+	logger logrus.FieldLogger
+	client *redis.Client
+	stop   context.CancelFunc
+}
+
+func NewRedisCustomerCacheUpdater(logger logrus.FieldLogger, client *redis.Client) CacheUpdater {
+	return &redisCustomerCacheUpdater{logger: logger, client: client}
+}
+
+func (r *redisCustomerCacheUpdater) Listen() error {
+	r.logger.Info("starting to listen for cache updates...")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r.stop = cancel
+	streamKey := "$"
+
+Listen:
+	for {
+		select {
+		case <-ctx.Done():
+			break Listen
+		default:
+			r.logger.Infof("awaiting messages starting from %s", streamKey)
+			nextKey, err := r.readStream(ctx, streamKey)
+			if err != nil {
+				r.logger.Errorf("error occurred on message processing - %v", err)
+				if errors.Is(err, redis.ErrClosed) {
+					return err
+				}
+			}
+			r.logger.Info("messages processing is finished")
+			streamKey = nextKey
+		}
+	}
+
+	r.logger.Info("listen loop is stopped")
+
+	return nil
+}
+
+func (r *redisCustomerCacheUpdater) Stop() {
+	if r.stop == nil {
+		r.logger.Info("listen loop hasn't been started yet")
+		return
+	}
+
+	r.logger.Info("stopping the listen loop...")
+	r.stop()
+	r.stop = nil
+}
+
+func (r *redisCustomerCacheUpdater) readStream(ctx context.Context, streamKey string) (string, error) {
+	streams, err := r.client.XRead(ctx, &redis.XReadArgs{
+		Streams: []string{customerStreamName, streamKey},
+		Count:   10,
+		Block:   0,
+	}).Result()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if msg == nil {
-		return nil
+	r.logger.Info("messages have been received, processing...")
+
+	nextKey := ""
+	for _, stream := range streams {
+		for _, msg := range stream.Messages {
+			nextKey = msg.ID
+			if err := r.processMessage(msg); err != nil {
+				return nextKey, fmt.Errorf("failed to process message %s - %w", msg.ID, err)
+			}
+		}
 	}
 
-	if _, err := r.client.XDel(ctx, cachedCustomersStream, msg.ID).Result(); err != nil {
-		return err
+	return nextKey, nil
+}
+
+func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
+	op, ok := msg.Values["op"].(string)
+	if !ok || op == "" {
+		return errors.New("incorrect message format received - op is missing")
+	}
+
+	id, ok := msg.Values["id"].(string)
+	if !ok || id == "" {
+		return errors.New("incorrect message format received - id is missing")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), streamCacheWriteTimeout)
+	defer cancel()
+
+	switch op {
+	case "create":
+		value, ok := msg.Values["value"].(string)
+		if !ok {
+			return errors.New("incorrect message format received - value is missing for create operation")
+		}
+		return r.client.SetNX(ctx, streamedCustomerKey(id), value, cachedCustomerTimeToLive).Err()
+	case "delete":
+		return r.client.Del(ctx, id).Err()
 	}
 
 	return nil
 }
 
-func (r *redisStreamCustomerCache) findStreamMessageById(ctx context.Context, id string) (*redis.XMessage, error) {
-	minId := r.minId(r.now())
-
-	messages, err := r.client.XRevRange(ctx, cachedCustomersStream, "+", minId).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, m := range messages {
-		if v, ok := m.Values["id"]; ok && v == id {
-			return &m, nil
-		}
-	}
-	return nil, nil
-}
-
-func (r *redisStreamCustomerCache) now() time.Time {
-	return time.Now().UTC()
-}
-
-func (r *redisStreamCustomerCache) minId(now time.Time) string {
-	id := now.Add(-cachedCustomerTimeToLive).Unix()
-	return strconv.FormatInt(id, 10)
+func streamedCustomerKey(id string) string {
+	return fmt.Sprintf("customer::%s", id)
 }

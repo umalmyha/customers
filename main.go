@@ -74,81 +74,6 @@ func main() {
 }
 
 func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) {
-	app := app(pgPool, mongoClient, redisClient, logger, authCfg)
-
-	shutdownCh := make(chan os.Signal, 1)
-	errorCh := make(chan error, 1)
-	signal.Notify(shutdownCh, os.Interrupt)
-
-	go func() {
-		logger.Infof("Starting server at port :%d", Port)
-		errorCh <- app.Start(fmt.Sprintf(":%d", Port))
-	}()
-
-	select {
-	case <-shutdownCh:
-		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
-		defer cancel()
-
-		logger.Infof("shutdown signal has been sent, stopping the server...")
-		if err := app.Shutdown(ctx); err != nil {
-			logger.Errorf("failed to stop server gracefully - %v", err)
-		}
-	case err := <-errorCh:
-		if !errors.Is(err, http.ErrServerClosed) {
-			logger.Errorf("shutting down the server because of unexpected error - %v", err)
-		}
-	}
-}
-
-func mongodb(ctx context.Context, uri string) (*mongo.Client, error) {
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
-	if err != nil {
-		return nil, err
-	}
-
-	if err := client.Ping(ctx, readpref.Primary()); err != nil {
-		return nil, err
-	}
-	return client, nil
-}
-
-func postgresql(ctx context.Context, uri string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.Connect(ctx, uri)
-	if err != nil {
-		return nil, fmt.Errorf("failed to establish connection to db - %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("didn't get response from database after sending ping request - %w", err)
-	}
-	return pool, nil
-}
-
-func redisClient(ctx context.Context, cfg config.RedisCfg) (*redis.Client, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:       cfg.Addr,
-		Password:   cfg.Password,
-		DB:         cfg.Db,
-		MaxRetries: cfg.MaxRetries,
-		PoolSize:   cfg.PoolSize,
-	})
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("didn't get response from redis after sending ping request - %w", err)
-	}
-	return client, nil
-}
-
-func logger() logrus.FieldLogger {
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetReportCaller(true)
-	logger.SetOutput(os.Stdout)
-	return logger
-}
-
-func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
 	e := echo.New()
 
 	validator, err := echoValidator()
@@ -186,6 +111,7 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Cli
 	// caches
 	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
 	redisStreamCustomerCache := cache.NewRedisStreamCustomerCache(redisClient)
+	customerStreamCacheUpdater := cache.NewRedisCustomerCacheUpdater(logger, redisClient)
 
 	// Repositories
 	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
@@ -249,7 +175,82 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Cli
 		}
 	}
 
-	return e
+	shutdownCh := make(chan os.Signal, 1)
+	errorCh := make(chan error, 1)
+	signal.Notify(shutdownCh, os.Interrupt)
+
+	go func() {
+		logger.Infof("Starting server at port :%d", Port)
+		errorCh <- e.Start(fmt.Sprintf(":%d", Port))
+	}()
+
+	go func() {
+		errorCh <- customerStreamCacheUpdater.Listen()
+	}()
+
+	select {
+	case <-shutdownCh:
+		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+		defer cancel()
+
+		logger.Infof("shutdown signal has been sent, stopping the server...")
+		if err := e.Shutdown(ctx); err != nil {
+			logger.Errorf("failed to stop server gracefully - %v", err)
+		}
+
+		customerStreamCacheUpdater.Stop()
+	case err := <-errorCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			logger.Errorf("shutting down the server because of unexpected error - %v", err)
+		}
+	}
+}
+
+func mongodb(ctx context.Context, uri string) (*mongo.Client, error) {
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func postgresql(ctx context.Context, uri string) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.Connect(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to establish connection to db - %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("didn't get response from database after sending ping request - %w", err)
+	}
+	return pool, nil
+}
+
+func redisClient(ctx context.Context, cfg config.RedisCfg) (*redis.Client, error) {
+	client := redis.NewClient(&redis.Options{
+		Addr:       cfg.Addr,
+		Password:   cfg.Password,
+		DB:         cfg.Db,
+		MaxRetries: cfg.MaxRetries,
+		PoolSize:   cfg.PoolSize,
+	})
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("didn't get response from redis after sending ping request - %w", err)
+	}
+	return client, nil
+}
+
+func logger() logrus.FieldLogger {
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetReportCaller(true)
+	logger.SetOutput(os.Stdout)
+	return logger
 }
 
 func echoValidator() (echo.Validator, error) {
