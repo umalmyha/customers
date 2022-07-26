@@ -194,6 +194,7 @@ func (r *redisCustomerCacheUpdater) readStream(ctx context.Context, streamKey st
 
 	nextKey := ""
 	for _, stream := range streams {
+		r.logger.Infof("number of messages received %d", len(stream.Messages))
 		for _, msg := range stream.Messages {
 			nextKey = msg.ID
 			if err := r.processMessage(msg); err != nil {
@@ -215,6 +216,9 @@ func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
 	if !ok || id == "" {
 		return errors.New("incorrect message format received - id is missing")
 	}
+	customerKey := streamedCustomerKey(id)
+
+	r.logger.Infof("process %s operation for customer %s", op, id)
 
 	ctx, cancel := context.WithTimeout(context.Background(), streamCacheWriteTimeout)
 	defer cancel()
@@ -225,9 +229,9 @@ func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
 		if !ok {
 			return errors.New("incorrect message format received - value is missing for create operation")
 		}
-		return r.client.SetNX(ctx, streamedCustomerKey(id), value, cachedCustomerTimeToLive).Err()
+		return r.client.SetNX(ctx, customerKey, value, cachedCustomerTimeToLive).Err()
 	case "delete":
-		return r.client.Del(ctx, id).Err()
+		return r.client.Del(ctx, customerKey).Err()
 	}
 
 	return nil
