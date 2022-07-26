@@ -185,6 +185,7 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Cli
 
 	// caches
 	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
+	redisStreamCustomerCache := cache.NewRedisStreamCustomerCache(redisClient)
 
 	// Repositories
 	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
@@ -192,7 +193,7 @@ func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Cli
 	pgCustomerRps := repository.NewPostgresCustomerRepository(pgPool)
 	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
 	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, pgCustomerRps)
-	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, mongoCustomerRps)
+	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisStreamCustomerCache, mongoCustomerRps)
 
 	// Services
 	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
