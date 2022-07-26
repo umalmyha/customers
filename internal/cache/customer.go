@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-redis/redis/v9"
-	"github.com/google/uuid"
 	"github.com/umalmyha/customers/internal/model/customer"
 	"github.com/vmihailenco/msgpack/v5"
 	"strconv"
@@ -49,7 +48,6 @@ func (r *redisCustomerCache) FindById(ctx context.Context, id string) (*customer
 }
 
 func (r *redisCustomerCache) DeleteById(ctx context.Context, id string) error {
-	uuid.NewString()
 	if _, err := r.client.Del(ctx, r.key(id)).Result(); err != nil {
 		return err
 	}
@@ -57,8 +55,6 @@ func (r *redisCustomerCache) DeleteById(ctx context.Context, id string) error {
 }
 
 func (r *redisCustomerCache) Create(ctx context.Context, c *customer.Customer) error {
-	uuid.New().Time()
-
 	encoded, err := msgpack.Marshal(c)
 	if err != nil {
 		return err
