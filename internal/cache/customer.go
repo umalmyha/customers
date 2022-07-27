@@ -158,11 +158,6 @@ Listen:
 			nextKey, err := r.readStream(ctx, key)
 			if err != nil {
 				r.logger.Errorf("error occurred on message processing - %v", err)
-				if errors.Is(err, redis.ErrClosed) {
-					if err := r.awaitReconnection(ctx); err != nil {
-						return err
-					}
-				}
 			}
 			key = nextKey
 		}
@@ -234,23 +229,6 @@ func (r *redisCustomerCacheUpdater) processMessage(ctx context.Context, msg redi
 	}
 
 	return nil
-}
-
-func (r *redisCustomerCacheUpdater) awaitReconnection(ctx context.Context) error {
-	wait := time.Second
-
-	for i := 0; i < 3; i++ {
-		if err := r.client.Ping(ctx).Err(); err == nil {
-			r.logger.Infof("connection to redis has been recovered")
-			return nil
-		}
-
-		r.logger.Infof("redis is unavailable, waiting %s", wait.String())
-		<-time.After(wait)
-		wait += time.Second
-	}
-
-	return errors.New("failed to recover connection to redis, check if service is up and running")
 }
 
 func streamedCustomerKey(id string) string {
