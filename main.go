@@ -18,10 +18,12 @@ import (
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/middleware"
 	"github.com/umalmyha/customers/internal/model/auth"
+	"github.com/umalmyha/customers/internal/model/customer"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
 	"github.com/umalmyha/customers/internal/validation"
 	"github.com/umalmyha/customers/pkg/db/transactor"
+	"github.com/vmihailenco/msgpack/v5"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -110,8 +112,8 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 
 	// caches
 	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
-	redisStreamCustomerCache := cache.NewRedisStreamCustomerCache(redisClient)
-	customerStreamCacheUpdater := cache.NewRedisCustomerCacheUpdater(logger, redisClient)
+	inMemoryCustomerCache := cache.NewInMemoryCache()
+	redisStreamCustomerCache := cache.NewRedisStreamCustomerCache(redisClient, inMemoryCustomerCache)
 
 	// Repositories
 	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
@@ -184,9 +186,10 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 		errorCh <- e.Start(fmt.Sprintf(":%d", Port))
 	}()
 
-	go func() {
-		errorCh <- customerStreamCacheUpdater.Listen()
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go readCustomersStream(ctx, redisClient, logger, inMemoryCustomerCache)
 
 	select {
 	case <-shutdownCh:
@@ -197,8 +200,6 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 		if err := e.Shutdown(ctx); err != nil {
 			logger.Errorf("failed to stop server gracefully - %v", err)
 		}
-
-		customerStreamCacheUpdater.Stop()
 	case err := <-errorCh:
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Errorf("shutting down the server because of unexpected error - %v", err)
@@ -278,4 +279,78 @@ func echoValidator() (echo.Validator, error) {
 	}
 
 	return validation.Echo(validator, translator), nil
+}
+
+func readCustomersStream(ctx context.Context, client *redis.Client, logger logrus.FieldLogger, cache cache.CustomerCache) {
+	const cacheWriteTimeout = 5 * time.Second
+	key := "$"
+
+	processMessage := func(m redis.XMessage) error {
+		op, ok := m.Values["op"].(string)
+		if !ok || op == "" {
+			return errors.New("message has incorrect format - op field is missing, skipped")
+		}
+
+		value, ok := m.Values["value"].(string)
+		if !ok {
+			return errors.New("message has incorrect format - value field is missing, skipped")
+		}
+
+		logger.Infof("%s operation is requested", op)
+
+		ctx, cancel := context.WithTimeout(ctx, cacheWriteTimeout)
+		defer cancel()
+
+		switch op {
+		case "create":
+			var c customer.Customer
+			if err := msgpack.Unmarshal([]byte(value), &c); err != nil {
+				return fmt.Errorf("failed to deserialize customer - %w", err)
+			}
+
+			if err := cache.Create(ctx, &c); err != nil {
+				return fmt.Errorf("failed to create customer entry in cache - %w", err)
+			}
+		case "delete":
+			if err := cache.DeleteById(ctx, value); err != nil {
+				return fmt.Errorf("failed to delete customer entry from cache - %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	logger.Info("starting to read customers redis stream")
+
+XRead:
+	for {
+		select {
+		case <-ctx.Done():
+			break XRead
+		default:
+			logger.Infof("waiting for new messages starting from %s", key)
+			streams, err := client.XRead(ctx, &redis.XReadArgs{
+				Streams: []string{"customers-stream", key},
+				Count:   10,
+				Block:   0,
+			}).Result()
+			if err != nil {
+				logger.Errorf("error occurred on reading message from stream - %v", err)
+				continue
+			}
+
+			logger.Info("messages were received")
+
+			for _, stream := range streams {
+				for _, m := range stream.Messages {
+					logger.Info("number of message received = ", len(stream.Messages))
+
+					key = m.ID
+					if err := processMessage(m); err != nil {
+						logger.Errorf("error occurred on message %s processing - %v", key, err)
+					}
+				}
+			}
+		}
+	}
 }
