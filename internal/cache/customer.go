@@ -131,36 +131,40 @@ func (r *redisStreamCustomerCache) sendMessage(ctx context.Context, values any) 
 type redisCustomerCacheUpdater struct {
 	logger logrus.FieldLogger
 	client *redis.Client
-	stop   context.CancelFunc
+	stopCh chan struct{}
 }
 
 func NewRedisCustomerCacheUpdater(logger logrus.FieldLogger, client *redis.Client) CacheUpdater {
-	return &redisCustomerCacheUpdater{logger: logger, client: client}
+	return &redisCustomerCacheUpdater{
+		logger: logger,
+		client: client,
+		stopCh: make(chan struct{}, 1),
+	}
 }
 
 func (r *redisCustomerCacheUpdater) Listen() error {
 	r.logger.Info("starting to listen for cache updates...")
 
+	key := "$"
 	ctx, cancel := context.WithCancel(context.Background())
-	r.stop = cancel
-	streamKey := "$"
 
 Listen:
 	for {
 		select {
-		case <-ctx.Done():
+		case <-r.stopCh:
+			cancel()
 			break Listen
 		default:
-			r.logger.Infof("awaiting messages starting from %s", streamKey)
-			nextKey, err := r.readStream(ctx, streamKey)
+			nextKey, err := r.readStream(ctx, key)
 			if err != nil {
 				r.logger.Errorf("error occurred on message processing - %v", err)
 				if errors.Is(err, redis.ErrClosed) {
-					return err
+					if err := r.awaitReconnection(ctx); err != nil {
+						return err
+					}
 				}
 			}
-			r.logger.Info("messages processing is finished")
-			streamKey = nextKey
+			key = nextKey
 		}
 	}
 
@@ -170,34 +174,29 @@ Listen:
 }
 
 func (r *redisCustomerCacheUpdater) Stop() {
-	if r.stop == nil {
-		r.logger.Info("listen loop hasn't been started yet")
-		return
-	}
-
-	r.logger.Info("stopping the listen loop...")
-	r.stop()
-	r.stop = nil
+	r.stopCh <- struct{}{}
 }
 
-func (r *redisCustomerCacheUpdater) readStream(ctx context.Context, streamKey string) (string, error) {
+func (r *redisCustomerCacheUpdater) readStream(ctx context.Context, key string) (string, error) {
+	r.logger.Infof("awaiting next messages starting from %s", key)
+	nextKey := key
+
 	streams, err := r.client.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{customerStreamName, streamKey},
+		Streams: []string{customerStreamName, key},
 		Count:   10,
 		Block:   0,
 	}).Result()
 	if err != nil {
-		return "", err
+		return nextKey, err
 	}
 
-	r.logger.Info("messages have been received, processing...")
+	r.logger.Info("messages have been received...")
 
-	nextKey := ""
 	for _, stream := range streams {
 		r.logger.Infof("number of messages received %d", len(stream.Messages))
 		for _, msg := range stream.Messages {
 			nextKey = msg.ID
-			if err := r.processMessage(msg); err != nil {
+			if err := r.processMessage(ctx, msg); err != nil {
 				return nextKey, fmt.Errorf("failed to process message %s - %w", msg.ID, err)
 			}
 		}
@@ -206,7 +205,7 @@ func (r *redisCustomerCacheUpdater) readStream(ctx context.Context, streamKey st
 	return nextKey, nil
 }
 
-func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
+func (r *redisCustomerCacheUpdater) processMessage(ctx context.Context, msg redis.XMessage) error {
 	op, ok := msg.Values["op"].(string)
 	if !ok || op == "" {
 		return errors.New("incorrect message format received - op is missing")
@@ -220,7 +219,7 @@ func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
 
 	r.logger.Infof("process %s operation for customer %s", op, id)
 
-	ctx, cancel := context.WithTimeout(context.Background(), streamCacheWriteTimeout)
+	ctx, cancel := context.WithTimeout(ctx, streamCacheWriteTimeout)
 	defer cancel()
 
 	switch op {
@@ -235,6 +234,23 @@ func (r *redisCustomerCacheUpdater) processMessage(msg redis.XMessage) error {
 	}
 
 	return nil
+}
+
+func (r *redisCustomerCacheUpdater) awaitReconnection(ctx context.Context) error {
+	wait := time.Second
+
+	for i := 0; i < 3; i++ {
+		if err := r.client.Ping(ctx).Err(); err == nil {
+			r.logger.Infof("connection to redis has been recovered")
+			return nil
+		}
+
+		r.logger.Infof("redis is unavailable, waiting %s", wait.String())
+		<-time.After(wait)
+		wait += time.Second
+	}
+
+	return errors.New("failed to recover connection to redis, check if service is up and running")
 }
 
 func streamedCustomerKey(id string) string {
