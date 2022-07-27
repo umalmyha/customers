@@ -18,10 +18,12 @@ import (
 	"github.com/umalmyha/customers/internal/handlers"
 	"github.com/umalmyha/customers/internal/middleware"
 	"github.com/umalmyha/customers/internal/model/auth"
+	"github.com/umalmyha/customers/internal/model/customer"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
 	"github.com/umalmyha/customers/internal/validation"
 	"github.com/umalmyha/customers/pkg/db/transactor"
+	"github.com/vmihailenco/msgpack/v5"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -74,7 +76,106 @@ func main() {
 }
 
 func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) {
-	app := app(pgPool, mongoClient, redisClient, logger, authCfg)
+	e := echo.New()
+
+	validator, err := echoValidator()
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	e.Validator = validator
+
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		logger.Errorf("error occurred during request processing - %v", err)
+
+		var pldErr *validation.PayloadError
+		if errors.As(err, &pldErr) {
+			err = c.JSON(http.StatusBadRequest, pldErr)
+			if err == nil {
+				return
+			}
+		}
+
+		e.DefaultHTTPErrorHandler(err, c)
+	}
+
+	// Transactors
+	pgxTransactor := transactor.NewPgxTransactor(pgPool)
+	pgxTxExecutor := transactor.NewPgxWithinTransactionExecutor(pgPool)
+
+	// Extra functionality
+	jwtIssuer := auth.NewJwtIssuer(authCfg.JwtCfg.Issuer, authCfg.JwtCfg.SigningMethod, authCfg.JwtCfg.TimeToLive, authCfg.JwtCfg.PrivateKey)
+	jwtValidator := auth.NewJwtValidator(authCfg.JwtCfg.SigningMethod, authCfg.JwtCfg.PublicKey)
+
+	// Middleware
+	authorizeMw := middleware.Authorize(jwtValidator)
+
+	// caches
+	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
+	inMemoryCustomerCache := cache.NewInMemoryCache()
+	redisStreamCustomerCache := cache.NewRedisStreamCustomerCache(redisClient, inMemoryCustomerCache)
+
+	// Repositories
+	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
+	rfrTokenRps := repository.NewPostgresRefreshTokenRepository(pgxTxExecutor)
+	pgCustomerRps := repository.NewPostgresCustomerRepository(pgPool)
+	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
+	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, pgCustomerRps)
+	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisStreamCustomerCache, mongoCustomerRps)
+
+	// Services
+	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
+	customerSvcV1 := service.NewCustomerService(pgCachedCustomerRps, logger)
+	customerSvcV2 := service.NewCustomerService(mongoCachedCustomerRps, logger)
+
+	// Handlers
+	authHandler := handlers.NewAuthHandler(authSvc)
+	customerHandlerV1 := handlers.NewCustomerHandler(customerSvcV1)
+	customerHandlerV2 := handlers.NewCustomerHandler(customerSvcV2)
+	imageHandler := handlers.NewImageHandler()
+
+	images := e.Group("/images")
+	{
+		images.POST("/upload", imageHandler.Upload)
+		images.GET("/:name/download", imageHandler.Download)
+		images.Use(echoMw.StaticWithConfig(echoMw.StaticConfig{
+			Root:   "images",
+			Browse: true,
+		}))
+	}
+
+	// API routes
+	api := e.Group("/api")
+	{
+		// auth
+		authApi := api.Group("/auth")
+		{
+			authApi.POST("/signup", authHandler.Signup)
+			authApi.POST("/login", authHandler.Login)
+			authApi.POST("/logout", authHandler.Logout)
+			authApi.POST("/refresh", authHandler.Refresh)
+		}
+
+		// customers v1
+		customersApiV1 := api.Group("/v1/customers", authorizeMw)
+		{
+			customersApiV1.GET("", customerHandlerV1.GetAll)
+			customersApiV1.GET("/:id", customerHandlerV1.Get)
+			customersApiV1.POST("", customerHandlerV1.Post)
+			customersApiV1.PUT("/:id", customerHandlerV1.Put)
+			customersApiV1.DELETE("/:id", customerHandlerV1.DeleteById)
+		}
+
+		// customers v2
+		customersApiV2 := api.Group("/v2/customers", authorizeMw)
+		{
+			customersApiV2.GET("", customerHandlerV2.GetAll)
+			customersApiV2.GET("/:id", customerHandlerV2.Get)
+			customersApiV2.POST("", customerHandlerV2.Post)
+			customersApiV2.PUT("/:id", customerHandlerV2.Put)
+			customersApiV2.DELETE("/:id", customerHandlerV2.DeleteById)
+		}
+	}
 
 	shutdownCh := make(chan os.Signal, 1)
 	errorCh := make(chan error, 1)
@@ -82,8 +183,13 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 
 	go func() {
 		logger.Infof("Starting server at port :%d", Port)
-		errorCh <- app.Start(fmt.Sprintf(":%d", Port))
+		errorCh <- e.Start(fmt.Sprintf(":%d", Port))
 	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go readCustomersStream(ctx, redisClient, logger, inMemoryCustomerCache)
 
 	select {
 	case <-shutdownCh:
@@ -91,7 +197,7 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 		defer cancel()
 
 		logger.Infof("shutdown signal has been sent, stopping the server...")
-		if err := app.Shutdown(ctx); err != nil {
+		if err := e.Shutdown(ctx); err != nil {
 			logger.Errorf("failed to stop server gracefully - %v", err)
 		}
 	case err := <-errorCh:
@@ -148,109 +254,6 @@ func logger() logrus.FieldLogger {
 	return logger
 }
 
-func app(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.Client, logger logrus.FieldLogger, authCfg config.AuthCfg) *echo.Echo {
-	e := echo.New()
-
-	validator, err := echoValidator()
-	if err != nil {
-		logger.Fatal(err)
-	}
-
-	e.Validator = validator
-
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		logger.Errorf("error occurred during request processing - %v", err)
-
-		var pldErr *validation.PayloadError
-		if errors.As(err, &pldErr) {
-			err = c.JSON(http.StatusBadRequest, pldErr)
-			if err == nil {
-				return
-			}
-		}
-
-		e.DefaultHTTPErrorHandler(err, c)
-	}
-
-	// Transactors
-	pgxTransactor := transactor.NewPgxTransactor(pgPool)
-	pgxTxExecutor := transactor.NewPgxWithinTransactionExecutor(pgPool)
-
-	// Extra functionality
-	jwtIssuer := auth.NewJwtIssuer(authCfg.JwtCfg.Issuer, authCfg.JwtCfg.SigningMethod, authCfg.JwtCfg.TimeToLive, authCfg.JwtCfg.PrivateKey)
-	jwtValidator := auth.NewJwtValidator(authCfg.JwtCfg.SigningMethod, authCfg.JwtCfg.PublicKey)
-
-	// Middleware
-	authorizeMw := middleware.Authorize(jwtValidator)
-
-	// caches
-	redisCustomerCache := cache.NewRedisCustomerCache(redisClient)
-
-	// Repositories
-	userRps := repository.NewPostgresUserRepository(pgxTxExecutor)
-	rfrTokenRps := repository.NewPostgresRefreshTokenRepository(pgxTxExecutor)
-	pgCustomerRps := repository.NewPostgresCustomerRepository(pgPool)
-	mongoCustomerRps := repository.NewMongoCustomerRepository(mongoClient)
-	pgCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, pgCustomerRps)
-	mongoCachedCustomerRps := repository.NewRedisCachedCustomerRepository(logger, redisCustomerCache, mongoCustomerRps)
-
-	// Services
-	authSvc := service.NewAuthService(jwtIssuer, authCfg.RefreshTokenCfg, pgxTransactor, userRps, rfrTokenRps, logger)
-	customerSvcV1 := service.NewCustomerService(pgCachedCustomerRps, logger)
-	customerSvcV2 := service.NewCustomerService(mongoCachedCustomerRps, logger)
-
-	// Handlers
-	authHandler := handlers.NewAuthHandler(authSvc)
-	customerHandlerV1 := handlers.NewCustomerHandler(customerSvcV1)
-	customerHandlerV2 := handlers.NewCustomerHandler(customerSvcV2)
-	imageHandler := handlers.NewImageHandler()
-
-	images := e.Group("/images")
-	{
-		images.POST("/upload", imageHandler.Upload)
-		images.GET("/:name/download", imageHandler.Download)
-		images.Use(echoMw.StaticWithConfig(echoMw.StaticConfig{
-			Root:   "images",
-			Browse: true,
-		}))
-	}
-
-	// API routes
-	api := e.Group("/api")
-	{
-		// auth
-		authApi := api.Group("/auth")
-		{
-			authApi.POST("/signup", authHandler.Signup)
-			authApi.POST("/login", authHandler.Login)
-			authApi.POST("/logout", authHandler.Logout)
-			authApi.POST("/refresh", authHandler.Refresh)
-		}
-
-		// customers v1
-		customersApiV1 := api.Group("/v1/customers", authorizeMw)
-		{
-			customersApiV1.GET("", customerHandlerV1.GetAll)
-			customersApiV1.GET("/:id", customerHandlerV1.Get)
-			customersApiV1.POST("", customerHandlerV1.Post)
-			customersApiV1.PUT("/:id", customerHandlerV1.Put)
-			customersApiV1.DELETE("/:id", customerHandlerV1.DeleteById)
-		}
-
-		// customers v2
-		customersApiV2 := api.Group("/v2/customers", authorizeMw)
-		{
-			customersApiV2.GET("", customerHandlerV2.GetAll)
-			customersApiV2.GET("/:id", customerHandlerV2.Get)
-			customersApiV2.POST("", customerHandlerV2.Post)
-			customersApiV2.PUT("/:id", customerHandlerV2.Put)
-			customersApiV2.DELETE("/:id", customerHandlerV2.DeleteById)
-		}
-	}
-
-	return e
-}
-
 func echoValidator() (echo.Validator, error) {
 	validator := validator.New()
 
@@ -276,4 +279,78 @@ func echoValidator() (echo.Validator, error) {
 	}
 
 	return validation.Echo(validator, translator), nil
+}
+
+func readCustomersStream(ctx context.Context, client *redis.Client, logger logrus.FieldLogger, cache cache.CustomerCache) {
+	const cacheWriteTimeout = 5 * time.Second
+	key := "$"
+
+	processMessage := func(m redis.XMessage) error {
+		op, ok := m.Values["op"].(string)
+		if !ok || op == "" {
+			return errors.New("message has incorrect format - op field is missing, skipped")
+		}
+
+		value, ok := m.Values["value"].(string)
+		if !ok {
+			return errors.New("message has incorrect format - value field is missing, skipped")
+		}
+
+		logger.Infof("%s operation is requested", op)
+
+		ctx, cancel := context.WithTimeout(ctx, cacheWriteTimeout)
+		defer cancel()
+
+		switch op {
+		case "create":
+			var c customer.Customer
+			if err := msgpack.Unmarshal([]byte(value), &c); err != nil {
+				return fmt.Errorf("failed to deserialize customer - %w", err)
+			}
+
+			if err := cache.Create(ctx, &c); err != nil {
+				return fmt.Errorf("failed to create customer entry in cache - %w", err)
+			}
+		case "delete":
+			if err := cache.DeleteById(ctx, value); err != nil {
+				return fmt.Errorf("failed to delete customer entry from cache - %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	logger.Info("starting to read customers redis stream")
+
+XRead:
+	for {
+		select {
+		case <-ctx.Done():
+			break XRead
+		default:
+			logger.Infof("waiting for new messages starting from %s", key)
+			streams, err := client.XRead(ctx, &redis.XReadArgs{
+				Streams: []string{"customers-stream", key},
+				Count:   10,
+				Block:   0,
+			}).Result()
+			if err != nil {
+				logger.Errorf("error occurred on reading message from stream - %v", err)
+				continue
+			}
+
+			logger.Info("messages were received")
+
+			for _, stream := range streams {
+				for _, m := range stream.Messages {
+					logger.Info("number of message received = ", len(stream.Messages))
+
+					key = m.ID
+					if err := processMessage(m); err != nil {
+						logger.Errorf("error occurred on message %s processing - %v", key, err)
+					}
+				}
+			}
+		}
+	}
 }

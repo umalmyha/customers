@@ -181,9 +181,11 @@ func (r *redisCachedCustomerRepository) FindById(ctx context.Context, id string)
 	}
 
 	if c != nil {
+		r.logger.Infof("customer %s is found in cache - returning", id)
 		return c, nil
 	}
 
+	r.logger.Infof("customer %s is not found in cache - returning from primary data source", id)
 	c, err = r.CustomerRepository.FindById(ctx, id)
 	if err != nil {
 		return nil, err
