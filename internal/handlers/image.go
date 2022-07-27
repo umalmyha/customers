@@ -30,6 +30,16 @@ func NewImageHandler() *ImageHandler {
 	}
 }
 
+// Upload godoc
+// @Summary     Upload image
+// @Description Uploads image to the server
+// @Tags        images
+// @Accept		mpfd
+// @Param 		image formData file true "Image"
+// @Success     200   "Successful status code"
+// @Failure     400   {object} echo.HTTPError
+// @Failure     500   {object} echo.HTTPError
+// @Router      /images/upload [post]
 func (h *ImageHandler) Upload(c echo.Context) error {
 	fileHdr, err := c.FormFile("image")
 	if err != nil {
@@ -72,6 +82,24 @@ func (h *ImageHandler) Upload(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// Download godoc
+// @Summary     Download image
+// @Description Downloads image from the server
+// @Tags        images
+// @Produce		image/gif
+// @Produce		image/jpeg
+// @Produce		image/pjpeg
+// @Produce		image/png
+// @Produce		image/svg+xml
+// @Produce		image/tiff
+// @Produce		image/vnd.microsoft.icon
+// @Produce		image/vnd.wap.wbmp
+// @Produce		image/webp
+// @Param 		name  query    string true "Image name"
+// @Success     200   {string} file
+// @Failure     400   {object} echo.HTTPError
+// @Failure     500   {object} echo.HTTPError
+// @Router      /images/{name}/download [get]
 func (h *ImageHandler) Download(c echo.Context) error {
 	name := c.Param("name")
 	path := fmt.Sprintf("./images/%s", name)

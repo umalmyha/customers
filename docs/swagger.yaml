@@ -1,0 +1,629 @@
+basePath: /
+definitions:
+  customer.Customer:
+    properties:
+      email:
+        type: string
+      firstName:
+        type: string
+      id:
+        type: string
+      importance:
+        type: integer
+      inactive:
+        type: boolean
+      lastName:
+        type: string
+      middleName:
+        type: string
+    type: object
+  echo.HTTPError:
+    properties:
+      message: {}
+    type: object
+  handlers.login:
+    properties:
+      email:
+        type: string
+      fingerprint:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - fingerprint
+    - password
+    type: object
+  handlers.logout:
+    properties:
+      refreshToken:
+        type: string
+    required:
+    - refreshToken
+    type: object
+  handlers.newCustomer:
+    properties:
+      email:
+        type: string
+      firstName:
+        type: string
+      importance:
+        enum:
+        - 1
+        - 2
+        - 3
+        - 4
+        type: integer
+      inactive:
+        type: boolean
+      lastName:
+        type: string
+      middleName:
+        type: string
+    required:
+    - email
+    - firstName
+    - importance
+    - lastName
+    type: object
+  handlers.newUser:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+  handlers.refresh:
+    properties:
+      fingerprint:
+        type: string
+      refreshToken:
+        type: string
+    required:
+    - fingerprint
+    - refreshToken
+    type: object
+  handlers.session:
+    properties:
+      accessToken:
+        type: string
+      expiresAt:
+        type: integer
+      refreshToken:
+        type: string
+    type: object
+  handlers.signup:
+    properties:
+      email:
+        type: string
+      password:
+        maxLength: 24
+        minLength: 4
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  handlers.updateCustomer:
+    properties:
+      email:
+        type: string
+      firstName:
+        type: string
+      id:
+        type: string
+      importance:
+        enum:
+        - 1
+        - 2
+        - 3
+        - 4
+        type: integer
+      inactive:
+        type: boolean
+      lastName:
+        type: string
+      middleName:
+        type: string
+    required:
+    - email
+    - firstName
+    - id
+    - importance
+    - lastName
+    type: object
+host: localhost:3000
+info:
+  contact:
+    email: uladzislau.malmyha@gmail.com
+    name: Uladzislau Malmyha
+    url: https://github.com/umalmyha/customers/issues
+  description: API allows to perform CRUD on customer entity
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Customers API
+  version: "1.0"
+paths:
+  /api/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Verifies provided credentials, sign jwt and refresh token
+      parameters:
+      - description: User credentials
+        in: body
+        name: login
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.login'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.session'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Login user
+      tags:
+      - auth
+  /api/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Remove any user-related session data
+      parameters:
+      - description: Refresh token id
+        in: body
+        name: logout
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.logout'
+      responses:
+        "200":
+          description: Successful status code
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Logout user
+      tags:
+      - auth
+  /api/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Sign new jwt and refresh token
+      parameters:
+      - description: Fingerprint and refresh token id
+        in: body
+        name: refresh
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.refresh'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.session'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Refresh jwt
+      tags:
+      - auth
+  /api/auth/signup:
+    post:
+      consumes:
+      - application/json
+      description: Register new account based on provided credentials
+      parameters:
+      - description: New user data
+        in: body
+        name: signup
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.signup'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.newUser'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Signup new account
+      tags:
+      - auth
+  /api/v1/customers:
+    get:
+      description: Returns all customers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/customer.Customer'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get all customers
+      tags:
+      - customers
+    post:
+      consumes:
+      - application/json
+      description: Creates new customer
+      parameters:
+      - description: Data for new customer
+        in: body
+        name: newCustomer
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.newCustomer'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: New Customer
+      tags:
+      - customers
+  /api/v1/customers/{id}:
+    delete:
+      description: Deletes customer with provided id
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Successful status code
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete customer by id
+      tags:
+      - customers
+    get:
+      description: Returns single customer with provided id
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get single customer by id
+      tags:
+      - customers
+    put:
+      consumes:
+      - application/json
+      description: Updates customer or creates new if not exist
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      - description: Customer data
+        in: body
+        name: updateCustomer
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateCustomer'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update/Create Customer
+      tags:
+      - customers
+  /api/v2/customers:
+    get:
+      description: Returns all customers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/customer.Customer'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get all customers
+      tags:
+      - customers
+    post:
+      consumes:
+      - application/json
+      description: Creates new customer
+      parameters:
+      - description: Data for new customer
+        in: body
+        name: newCustomer
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.newCustomer'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: New Customer
+      tags:
+      - customers
+  /api/v2/customers/{id}:
+    delete:
+      description: Deletes customer with provided id
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Successful status code
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Delete customer by id
+      tags:
+      - customers
+    get:
+      description: Returns single customer with provided id
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Get single customer by id
+      tags:
+      - customers
+    put:
+      consumes:
+      - application/json
+      description: Updates customer or creates new if not exist
+      parameters:
+      - description: Customer guid
+        format: uuid
+        in: query
+        name: id
+        required: true
+        type: string
+      - description: Customer data
+        in: body
+        name: updateCustomer
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.updateCustomer'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/customer.Customer'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      security:
+      - ApiKeyAuth: []
+      summary: Update/Create Customer
+      tags:
+      - customers
+  /images/{name}/download:
+    get:
+      description: Downloads image from the server
+      parameters:
+      - description: Image name
+        in: query
+        name: name
+        required: true
+        type: string
+      produces:
+      - image/gif
+      - image/jpeg
+      - image/pjpeg
+      - image/png
+      - image/svg+xml
+      - image/tiff
+      - image/vnd.microsoft.icon
+      - image/vnd.wap.wbmp
+      - image/webp
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Download image
+      tags:
+      - images
+  /images/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Uploads image to the server
+      parameters:
+      - description: Image
+        in: formData
+        name: image
+        required: true
+        type: file
+      responses:
+        "200":
+          description: Successful status code
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/echo.HTTPError'
+      summary: Upload image
+      tags:
+      - images
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
