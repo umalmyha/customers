@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
+	echoSwagger "github.com/swaggo/echo-swagger"
+	_ "github.com/umalmyha/customers/docs"
 	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
@@ -39,6 +41,23 @@ const Port = 3000
 const ShutdownTimeout = 10 * time.Second
 const ServerStartupTimeout = 10 * time.Second
 
+// @title Customers API
+// @version 1.0
+// @description API allows to perform CRUD on customer entity
+
+// @contact.name Uladzislau Malmyha
+// @contact.url https://github.com/umalmyha/customers/issues
+// @contact.email uladzislau.malmyha@gmail.com
+
+// @host localhost:3000
+// @BasePath /
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
 func main() {
 	logger := logger()
 
@@ -176,6 +195,8 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 			customersApiV2.DELETE("/:id", customerHandlerV2.DeleteById)
 		}
 	}
+
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	shutdownCh := make(chan os.Signal, 1)
 	errorCh := make(chan error, 1)

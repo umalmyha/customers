@@ -17,3 +17,8 @@ down-v:
 	@echo Stopping containers and removing volumes...
 	docker-compose down -v
 	@echo Containers are stopped
+
+swagger-gen:
+	@echo starting to generate swagger docs...
+	swag init --parseDependency true
+	@echo swagger docs generation finished
