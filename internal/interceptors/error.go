@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+	"errors"
 	"github.com/labstack/echo/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -43,8 +44,10 @@ func ErrorUnaryInterceptor(logger errorLogger, applicables ...UnaryInterceptorAp
 		}
 
 		code := codes.Internal
-		if e, ok := err.(*echo.HTTPError); ok {
-			code = httpToGrpcCode(e.Code)
+
+		var echoErr *echo.HTTPError
+		if errors.As(err, &echoErr) {
+			code = httpToGrpcCode(echoErr.Code)
 		}
 
 		if code == codes.Internal {

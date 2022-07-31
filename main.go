@@ -227,6 +227,10 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 
 	// start gRPC server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", GrpcPort))
+	if err != nil {
+		logger.Fatal(err)
+	}
+
 	grpcSvc := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			authInterceptor,

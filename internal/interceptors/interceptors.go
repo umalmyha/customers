@@ -14,7 +14,7 @@ func isUnaryInterceptorApplicable(info *grpc.UnaryServerInfo, fns ...UnaryInterc
 	}
 
 	for _, fn := range fns {
-		if fn(info) == false {
+		if !fn(info) {
 			return false
 		}
 	}
@@ -24,9 +24,6 @@ func isUnaryInterceptorApplicable(info *grpc.UnaryServerInfo, fns ...UnaryInterc
 func UnaryApplicableForService(svc string) UnaryInterceptorApplicable {
 	return func(info *grpc.UnaryServerInfo) bool {
 		// FullMethod is the full RPC method string, i.e., /package.service/method.
-		if strings.Contains(info.FullMethod, svc) {
-			return true
-		}
-		return false
+		return strings.Contains(info.FullMethod, svc)
 	}
 }
