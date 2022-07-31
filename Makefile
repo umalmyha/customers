@@ -22,3 +22,10 @@ swagger-gen:
 	@echo starting to generate swagger docs...
 	swag init --parseDependency true
 	@echo swagger docs generation finished
+
+proto-gen:
+	@echo starting to generate code for gRPC...
+	protoc -Iinternal/proto --go_out=. --go_opt=module=github.com/umalmyha/customers --go-grpc_out=. --go-grpc_opt=module=github.com/umalmyha/customers --validate_out=paths=source_relative,lang=go:./internal/proto ./internal/proto/*.proto
+	@echo gRPC code has been generated
+
+
