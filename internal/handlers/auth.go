@@ -214,7 +214,6 @@ func (h *authGrpcHandler) Login(ctx context.Context, req *proto.LoginRequest) (*
 
 func (h *authGrpcHandler) Logout(ctx context.Context, req *proto.LogoutRequest) (*emptypb.Empty, error) {
 	if err := h.authSvc.Logout(ctx, req.RefreshToken); err != nil {
-		// TODO: Think of error handling
 		return nil, err
 	}
 	return nil, nil
