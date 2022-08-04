@@ -92,7 +92,7 @@ func (h *AuthHTTPHandler) Signup(c echo.Context) error {
 
 // Login logins user
 // @Summary     Login user
-// @Description Verifies provided credentials, sign auth and refresh token
+// @Description Verifies provided credentials, sign jwt and refresh token
 // @Tags        auth
 // @Accept      json
 // @Produce     json
@@ -150,8 +150,8 @@ func (h *AuthHTTPHandler) Logout(c echo.Context) error {
 }
 
 // Refresh refreshes user session
-// @Summary     Refresh auth
-// @Description Sign new auth and refresh token
+// @Summary     Refresh jwt
+// @Description Sign new jwt and refresh token
 // @Tags        auth
 // @Accept      json
 // @Produce     json
