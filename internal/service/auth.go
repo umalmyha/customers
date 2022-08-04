@@ -29,13 +29,13 @@ type authService struct {
 	userRps     repository.UserRepository
 	rfrTknRps   repository.RefreshTokenRepository
 	jwtIssuer   *auth.JwtIssuer
-	rfrTokenCfg config.RefreshTokenCfg
+	rfrTokenCfg *config.RefreshTokenCfg
 }
 
 // NewAuthService builds new authService
 func NewAuthService(
 	jwtIssuer *auth.JwtIssuer,
-	rfrTokenCfg config.RefreshTokenCfg,
+	rfrTokenCfg *config.RefreshTokenCfg,
 	txtor transactor.Transactor,
 	userRps repository.UserRepository,
 	rfrTknRps repository.RefreshTokenRepository,

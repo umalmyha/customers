@@ -104,7 +104,7 @@ func main() {
 		}
 	}()
 
-	start(pgPool, mongoClient, redisClient, cfg.JwtCfg, cfg.RefreshTokenCfg)
+	start(pgPool, mongoClient, redisClient, &cfg.JwtCfg, &cfg.RefreshTokenCfg)
 }
 
 //nolint:funlen // function contains a lot of endpoints definitions
@@ -112,8 +112,8 @@ func start(
 	pgPool *pgxpool.Pool,
 	mongoClient *mongo.Client,
 	redisClient *redis.Client,
-	jwtCfg config.JwtCfg,
-	rfrTokenCfg config.RefreshTokenCfg,
+	jwtCfg *config.JwtCfg,
+	rfrTokenCfg *config.RefreshTokenCfg,
 ) {
 	e := echo.New()
 
