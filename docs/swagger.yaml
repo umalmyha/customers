@@ -149,7 +149,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Verifies provided credentials, sign jwt and refresh token
+      description: Verifies provided credentials, sign auth and refresh token
       parameters:
       - description: User credentials
         in: body
@@ -205,7 +205,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Sign new jwt and refresh token
+      description: Sign new auth and refresh token
       parameters:
       - description: Fingerprint and refresh token id
         in: body
@@ -228,7 +228,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/echo.HTTPError'
-      summary: Refresh jwt
+      summary: Refresh auth
       tags:
       - auth
   /api/auth/signup:

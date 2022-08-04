@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v9"
-	"github.com/umalmyha/customers/internal/model/customer"
-	"github.com/vmihailenco/msgpack/v5"
 	"sync"
 	"time"
+
+	"github.com/go-redis/redis/v9"
+	"github.com/umalmyha/customers/internal/model"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 const (
@@ -16,21 +17,23 @@ const (
 	customerStreamMaxLen     = 1000
 )
 
-type CustomerCache interface {
-	FindById(context.Context, string) (*customer.Customer, error)
-	DeleteById(context.Context, string) error
-	Create(context.Context, *customer.Customer) error
+// CustomerCacheRepository interface representing customer cache behavior
+type CustomerCacheRepository interface {
+	FindByID(context.Context, string) (*model.Customer, error)
+	DeleteByID(context.Context, string) error
+	Create(context.Context, *model.Customer) error
 }
 
 type redisCustomerCache struct {
 	client *redis.Client
 }
 
-func NewRedisCustomerCache(client *redis.Client) CustomerCache {
+// NewRedisCustomerCache builds new redis customer cache
+func NewRedisCustomerCache(client *redis.Client) CustomerCacheRepository {
 	return &redisCustomerCache{client: client}
 }
 
-func (r *redisCustomerCache) FindById(ctx context.Context, id string) (*customer.Customer, error) {
+func (r *redisCustomerCache) FindByID(ctx context.Context, id string) (*model.Customer, error) {
 	res, err := r.client.Get(ctx, r.key(id)).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -39,7 +42,7 @@ func (r *redisCustomerCache) FindById(ctx context.Context, id string) (*customer
 		return nil, err
 	}
 
-	var c customer.Customer
+	var c model.Customer
 	if err := msgpack.Unmarshal([]byte(res), &c); err != nil {
 		return nil, err
 	}
@@ -47,20 +50,20 @@ func (r *redisCustomerCache) FindById(ctx context.Context, id string) (*customer
 	return &c, nil
 }
 
-func (r *redisCustomerCache) DeleteById(ctx context.Context, id string) error {
+func (r *redisCustomerCache) DeleteByID(ctx context.Context, id string) error {
 	if _, err := r.client.Del(ctx, r.key(id)).Result(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *redisCustomerCache) Create(ctx context.Context, c *customer.Customer) error {
+func (r *redisCustomerCache) Create(ctx context.Context, c *model.Customer) error {
 	encoded, err := msgpack.Marshal(c)
 	if err != nil {
 		return err
 	}
 
-	_, err = r.client.SetNX(ctx, r.key(c.Id), encoded, cachedCustomerTimeToLive).Result()
+	_, err = r.client.SetNX(ctx, r.key(c.ID), encoded, cachedCustomerTimeToLive).Result()
 	if err != nil {
 		return err
 	}
@@ -72,17 +75,18 @@ func (r *redisCustomerCache) key(id string) string {
 }
 
 type inMemoryCache struct {
-	customers map[string]*customer.Customer
+	customers map[string]*model.Customer
 	mu        sync.RWMutex
 }
 
-func NewInMemoryCache() CustomerCache {
+// NewInMemoryCache builds new in-memory cache
+func NewInMemoryCache() CustomerCacheRepository {
 	return &inMemoryCache{
-		customers: make(map[string]*customer.Customer),
+		customers: make(map[string]*model.Customer),
 	}
 }
 
-func (c *inMemoryCache) FindById(_ context.Context, id string) (*customer.Customer, error) {
+func (c *inMemoryCache) FindByID(_ context.Context, id string) (*model.Customer, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -94,15 +98,15 @@ func (c *inMemoryCache) FindById(_ context.Context, id string) (*customer.Custom
 	return customer, nil
 }
 
-func (c *inMemoryCache) Create(_ context.Context, customer *customer.Customer) error {
+func (c *inMemoryCache) Create(_ context.Context, customer *model.Customer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.customers[customer.Id] = customer
+	c.customers[customer.ID] = customer
 	return nil
 }
 
-func (c *inMemoryCache) DeleteById(_ context.Context, id string) error {
+func (c *inMemoryCache) DeleteByID(_ context.Context, id string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -112,14 +116,15 @@ func (c *inMemoryCache) DeleteById(_ context.Context, id string) error {
 
 type redisStreamCustomerCache struct {
 	client *redis.Client
-	CustomerCache
+	CustomerCacheRepository
 }
 
-func NewRedisStreamCustomerCache(client *redis.Client, primary CustomerCache) CustomerCache {
-	return &redisStreamCustomerCache{client: client, CustomerCache: primary}
+// NewRedisStreamCustomerCache builds redis stream customer cache
+func NewRedisStreamCustomerCache(client *redis.Client, primary CustomerCacheRepository) CustomerCacheRepository {
+	return &redisStreamCustomerCache{client: client, CustomerCacheRepository: primary}
 }
 
-func (r *redisStreamCustomerCache) Create(ctx context.Context, c *customer.Customer) error {
+func (r *redisStreamCustomerCache) Create(ctx context.Context, c *model.Customer) error {
 	value, err := msgpack.Marshal(c)
 	if err != nil {
 		return err
@@ -128,7 +133,7 @@ func (r *redisStreamCustomerCache) Create(ctx context.Context, c *customer.Custo
 	return r.sendMessage(ctx, "create", value)
 }
 
-func (r *redisStreamCustomerCache) DeleteById(ctx context.Context, id string) error {
+func (r *redisStreamCustomerCache) DeleteByID(ctx context.Context, id string) error {
 	return r.sendMessage(ctx, "delete", id)
 }
 

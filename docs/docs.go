@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/api/auth/login": {
             "post": {
-                "description": "Verifies provided credentials, sign jwt and refresh token",
+                "description": "Verifies provided credentials, sign auth and refresh token",
                 "consumes": [
                     "application/json"
                 ],
@@ -112,7 +112,7 @@ const docTemplate = `{
         },
         "/api/auth/refresh": {
             "post": {
-                "description": "Sign new jwt and refresh token",
+                "description": "Sign new auth and refresh token",
                 "consumes": [
                     "application/json"
                 ],
@@ -122,7 +122,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Refresh jwt",
+                "summary": "Refresh auth",
                 "parameters": [
                     {
                         "description": "Fingerprint and refresh token id",

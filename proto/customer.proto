@@ -4,7 +4,15 @@ package customer;
 import "google/protobuf/empty.proto";
 import "validate/validate.proto";
 
-option go_package = "github.com/umalmyha/customers/internal/proto";
+option go_package = "github.com/umalmyha/customers/proto";
+
+service CustomerService {
+  rpc GetByID(GetCustomerByIdRequest) returns (CustomerResponse);
+  rpc GetAll(google.protobuf.Empty) returns (CustomerListResponse);
+  rpc Create(NewCustomerRequest) returns (CustomerResponse);
+  rpc Upsert(UpdateCustomerRequest) returns (CustomerResponse);
+  rpc DeleteByID(DeleteCustomerByIdRequest) returns (google.protobuf.Empty);
+}
 
 enum CustomerImportance {
   LOW = 0;
@@ -52,12 +60,4 @@ message CustomerResponse {
 
 message CustomerListResponse {
   repeated CustomerResponse customers = 1;
-}
-
-service CustomerService {
-  rpc GetById(GetCustomerByIdRequest) returns (CustomerResponse);
-  rpc GetAll(google.protobuf.Empty) returns (CustomerListResponse);
-  rpc Create(NewCustomerRequest) returns (CustomerResponse);
-  rpc Upsert(UpdateCustomerRequest) returns (CustomerResponse);
-  rpc DeleteById(DeleteCustomerByIdRequest) returns (google.protobuf.Empty);
 }
