@@ -217,7 +217,7 @@ func NewCustomerHTTPHandler(customerSvc service.CustomerService) *CustomerHTTPHa
 // @Security	ApiKeyAuth
 // @Produce     json
 // @Param       id     query 	string true "Customer guid" Format(uuid)
-// @Success     200    {object} customer.Customer
+// @Success     200    {object} model.Customer
 // @Failure     400    {object} echo.HTTPError
 // @Failure     500    {object} echo.HTTPError
 // @Router      /api/v1/customers/{id} [get]
@@ -242,7 +242,7 @@ func (h *CustomerHTTPHandler) Get(c echo.Context) error {
 // @Tags        customers
 // @Security	ApiKeyAuth
 // @Produce     json
-// @Success     200    {array}  customer.Customer
+// @Success     200    {array}  model.Customer
 // @Failure     400    {object} echo.HTTPError
 // @Failure     500    {object} echo.HTTPError
 // @Router      /api/v1/customers [get]
@@ -263,7 +263,7 @@ func (h *CustomerHTTPHandler) GetAll(c echo.Context) error {
 // @Accept		json
 // @Produce     json
 // @Param 		newCustomer body	 newCustomer true "Data for new customer"
-// @Success     200    		{object} customer.Customer
+// @Success     200    		{object} model.Customer
 // @Failure     400    		{object} echo.HTTPError
 // @Failure     500    		{object} echo.HTTPError
 // @Router      /api/v1/customers [post]
@@ -302,7 +302,7 @@ func (h *CustomerHTTPHandler) Post(c echo.Context) error {
 // @Produce     json
 // @Param       id     		   query 	string 		   true "Customer guid" Format(uuid)
 // @Param 		updateCustomer body	    updateCustomer true "Customer data"
-// @Success     200    		   {object} customer.Customer
+// @Success     200    		   {object} model.Customer
 // @Failure     400    		   {object} echo.HTTPError
 // @Failure     500    		   {object} echo.HTTPError
 // @Router      /api/v1/customers/{id} [put]

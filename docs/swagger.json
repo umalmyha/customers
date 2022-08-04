@@ -216,7 +216,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/customer.Customer"
+                                "$ref": "#/definitions/model.Customer"
                             }
                         }
                     },
@@ -266,7 +266,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -313,7 +313,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -370,7 +370,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -451,7 +451,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/customer.Customer"
+                                "$ref": "#/definitions/model.Customer"
                             }
                         }
                     },
@@ -501,7 +501,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -548,7 +548,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -605,7 +605,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -754,32 +754,6 @@
         }
     },
     "definitions": {
-        "customer.Customer": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "firstName": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "importance": {
-                    "type": "integer"
-                },
-                "inactive": {
-                    "type": "boolean"
-                },
-                "lastName": {
-                    "type": "string"
-                },
-                "middleName": {
-                    "type": "string"
-                }
-            }
-        },
         "echo.HTTPError": {
             "type": "object",
             "properties": {
@@ -935,6 +909,32 @@
                         3,
                         4
                     ]
+                },
+                "inactive": {
+                    "type": "boolean"
+                },
+                "lastName": {
+                    "type": "string"
+                },
+                "middleName": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Customer": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "firstName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "importance": {
+                    "type": "integer"
                 },
                 "inactive": {
                     "type": "boolean"

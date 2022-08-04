@@ -26,7 +26,7 @@ const docTemplate = `{
     "paths": {
         "/api/auth/login": {
             "post": {
-                "description": "Verifies provided credentials, sign auth and refresh token",
+                "description": "Verifies provided credentials, sign jwt and refresh token",
                 "consumes": [
                     "application/json"
                 ],
@@ -112,7 +112,7 @@ const docTemplate = `{
         },
         "/api/auth/refresh": {
             "post": {
-                "description": "Sign new auth and refresh token",
+                "description": "Sign new jwt and refresh token",
                 "consumes": [
                     "application/json"
                 ],
@@ -122,7 +122,7 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Refresh auth",
+                "summary": "Refresh jwt",
                 "parameters": [
                     {
                         "description": "Fingerprint and refresh token id",
@@ -223,7 +223,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/customer.Customer"
+                                "$ref": "#/definitions/model.Customer"
                             }
                         }
                     },
@@ -273,7 +273,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -320,7 +320,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -377,7 +377,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -458,7 +458,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/customer.Customer"
+                                "$ref": "#/definitions/model.Customer"
                             }
                         }
                     },
@@ -508,7 +508,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -555,7 +555,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -612,7 +612,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/customer.Customer"
+                            "$ref": "#/definitions/model.Customer"
                         }
                     },
                     "400": {
@@ -761,32 +761,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "customer.Customer": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "firstName": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "importance": {
-                    "type": "integer"
-                },
-                "inactive": {
-                    "type": "boolean"
-                },
-                "lastName": {
-                    "type": "string"
-                },
-                "middleName": {
-                    "type": "string"
-                }
-            }
-        },
         "echo.HTTPError": {
             "type": "object",
             "properties": {
@@ -942,6 +916,32 @@ const docTemplate = `{
                         3,
                         4
                     ]
+                },
+                "inactive": {
+                    "type": "boolean"
+                },
+                "lastName": {
+                    "type": "string"
+                },
+                "middleName": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Customer": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "firstName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "importance": {
+                    "type": "integer"
                 },
                 "inactive": {
                     "type": "boolean"
