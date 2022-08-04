@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"github.com/labstack/echo/v4"
+	"github.com/umalmyha/customers/internal/proto"
 	"github.com/umalmyha/customers/internal/service"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"net/http"
 	"time"
 )
@@ -38,12 +41,12 @@ type refresh struct {
 	RefreshToken string `json:"refreshToken" validate:"required,uuid"`
 }
 
-type AuthHandler struct {
+type authHttpHandler struct {
 	authSvc service.AuthService
 }
 
-func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
-	return &AuthHandler{
+func NewAuthHttpHandler(authSvc service.AuthService) *authHttpHandler {
+	return &authHttpHandler{
 		authSvc: authSvc,
 	}
 }
@@ -59,7 +62,7 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 // @Failure     400    {object} echo.HTTPError
 // @Failure     500    {object} echo.HTTPError
 // @Router      /api/auth/signup [post]
-func (h *AuthHandler) Signup(c echo.Context) error {
+func (h *authHttpHandler) Signup(c echo.Context) error {
 	var su signup
 	if err := c.Bind(&su); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -91,7 +94,7 @@ func (h *AuthHandler) Signup(c echo.Context) error {
 // @Failure     400    {object} echo.HTTPError
 // @Failure     500    {object} echo.HTTPError
 // @Router      /api/auth/login [post]
-func (h *AuthHandler) Login(c echo.Context) error {
+func (h *authHttpHandler) Login(c echo.Context) error {
 	var login login
 	if err := c.Bind(&login); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -123,7 +126,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 // @Failure     400    {object} echo.HTTPError
 // @Failure     500    {object} echo.HTTPError
 // @Router      /api/auth/logout [post]
-func (h *AuthHandler) Logout(c echo.Context) error {
+func (h *authHttpHandler) Logout(c echo.Context) error {
 	var logout logout
 	if err := c.Bind(&logout); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -150,7 +153,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 // @Failure     400     {object} echo.HTTPError
 // @Failure     500     {object} echo.HTTPError
 // @Router      /api/auth/refresh [post]
-func (h *AuthHandler) Refresh(c echo.Context) error {
+func (h *authHttpHandler) Refresh(c echo.Context) error {
 	var r refresh
 	if err := c.Bind(&r); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -170,4 +173,61 @@ func (h *AuthHandler) Refresh(c echo.Context) error {
 		ExpiresAt:    jwt.ExpiresAt,
 		RefreshToken: rfrToken.Id,
 	})
+}
+
+type authGrpcHandler struct {
+	proto.UnimplementedAuthServiceServer
+	authSvc service.AuthService
+}
+
+func NewAuthGrpcHandler(authSvc service.AuthService) *authGrpcHandler {
+	return &authGrpcHandler{
+		UnimplementedAuthServiceServer: proto.UnimplementedAuthServiceServer{},
+		authSvc:                        authSvc,
+	}
+}
+
+func (h *authGrpcHandler) Signup(ctx context.Context, req *proto.SignupRequest) (*proto.NewUserResponse, error) {
+	u, err := h.authSvc.Signup(ctx, req.Email, req.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.NewUserResponse{
+		Id:    u.Id,
+		Email: u.Email,
+	}, nil
+}
+
+func (h *authGrpcHandler) Login(ctx context.Context, req *proto.LoginRequest) (*proto.SessionResponse, error) {
+	jwt, rfrToken, err := h.authSvc.Login(ctx, req.Email, req.Password, req.Fingerprint, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.SessionResponse{
+		Token:        jwt.Signed,
+		ExpiresAt:    jwt.ExpiresAt,
+		RefreshToken: rfrToken.Id,
+	}, nil
+}
+
+func (h *authGrpcHandler) Logout(ctx context.Context, req *proto.LogoutRequest) (*emptypb.Empty, error) {
+	if err := h.authSvc.Logout(ctx, req.RefreshToken); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (h *authGrpcHandler) Refresh(ctx context.Context, req *proto.RefreshRequest) (*proto.SessionResponse, error) {
+	jwt, rfrToken, err := h.authSvc.Refresh(ctx, req.RefreshToken, req.Fingerprint, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.SessionResponse{
+		Token:        jwt.Signed,
+		ExpiresAt:    jwt.ExpiresAt,
+		RefreshToken: rfrToken.Id,
+	}, nil
 }

@@ -7,6 +7,10 @@ linters:
   disable:
     - structcheck # disabled by default in Go 1.18 - just to hide warning
 
+run:
+  skip-dirs:
+    - internal/proto
+
 linters-settings:
   govet:
     disable:

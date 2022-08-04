@@ -19,6 +19,7 @@ WORKDIR /app
 COPY --from=build /app/customers /app/private.ed /app/public.ed.pub /app/
 
 EXPOSE 3000
+EXPOSE 3010
 
 CMD ["/app/customers"]
 

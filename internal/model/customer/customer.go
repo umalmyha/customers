@@ -3,7 +3,7 @@ package customer
 type Importance int
 
 const (
-	ImportanceLow Importance = iota + 1
+	ImportanceLow Importance = iota
 	ImportanceMedium
 	ImportanceHigh
 	ImportanceCritical

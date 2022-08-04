@@ -1,0 +1,63 @@
+syntax = "proto3";
+package customer;
+
+import "google/protobuf/empty.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/umalmyha/customers/internal/proto";
+
+enum CustomerImportance {
+  LOW = 0;
+  MEDIUM = 1;
+  HIGH = 2;
+  CRITICAL = 3;
+}
+
+message GetCustomerByIdRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+}
+
+message DeleteCustomerByIdRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+}
+
+message NewCustomerRequest {
+  string first_name = 1 [(validate.rules).string.min_bytes = 1];
+  string last_name = 2 [(validate.rules).string.min_bytes = 1];
+  optional string middle_name = 3;
+  string email = 4 [(validate.rules).string.email = true];
+  CustomerImportance importance = 5 [(validate.rules).enum = {in: [0,1,2,3]}];
+  bool inactive = 6;
+}
+
+message UpdateCustomerRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+  string first_name = 2 [(validate.rules).string.min_bytes = 1];
+  string last_name = 3 [(validate.rules).string.min_bytes = 1];
+  optional string middle_name = 4;
+  string email = 5 [(validate.rules).string.email = true];
+  CustomerImportance importance = 6 [(validate.rules).enum = {in: [0,1,2,3]}];
+  bool inactive = 7;
+}
+
+message CustomerResponse {
+  string id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  optional string middle_name = 4;
+  string email = 5;
+  CustomerImportance importance = 6;
+  bool inactive = 7;
+}
+
+message CustomerListResponse {
+  repeated CustomerResponse customers = 1;
+}
+
+service CustomerService {
+  rpc GetById(GetCustomerByIdRequest) returns (CustomerResponse);
+  rpc GetAll(google.protobuf.Empty) returns (CustomerListResponse);
+  rpc Create(NewCustomerRequest) returns (CustomerResponse);
+  rpc Upsert(UpdateCustomerRequest) returns (CustomerResponse);
+  rpc DeleteById(DeleteCustomerByIdRequest) returns (google.protobuf.Empty);
+}

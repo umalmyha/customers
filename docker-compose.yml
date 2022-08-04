@@ -29,6 +29,7 @@ services:
       - redis-customers
     ports:
       - "3000:3000"
+      - "3010:3010"
     volumes:
       - customer-images:/app/images
 

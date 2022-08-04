@@ -18,9 +18,11 @@ import (
 	"github.com/umalmyha/customers/internal/cache"
 	"github.com/umalmyha/customers/internal/config"
 	"github.com/umalmyha/customers/internal/handlers"
+	"github.com/umalmyha/customers/internal/interceptors"
 	"github.com/umalmyha/customers/internal/middleware"
 	"github.com/umalmyha/customers/internal/model/auth"
 	"github.com/umalmyha/customers/internal/model/customer"
+	"github.com/umalmyha/customers/internal/proto"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/internal/service"
 	"github.com/umalmyha/customers/internal/validation"
@@ -29,6 +31,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"google.golang.org/grpc"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,7 +41,8 @@ import (
 	"time"
 )
 
-const Port = 3000
+const HttpPort = 3000
+const GrpcPort = 3010
 const ShutdownTimeout = 10 * time.Second
 const ServerStartupTimeout = 10 * time.Second
 
@@ -147,11 +152,20 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 	customerSvcV1 := service.NewCustomerService(pgCachedCustomerRps, logger)
 	customerSvcV2 := service.NewCustomerService(mongoCachedCustomerRps, logger)
 
-	// Handlers
-	authHandler := handlers.NewAuthHandler(authSvc)
-	customerHandlerV1 := handlers.NewCustomerHandler(customerSvcV1)
-	customerHandlerV2 := handlers.NewCustomerHandler(customerSvcV2)
+	// HTTP Handlers
+	authHttpHandler := handlers.NewAuthHttpHandler(authSvc)
+	customerHttpHandlerV1 := handlers.NewCustomerHttpHandler(customerSvcV1)
+	customerHttpHandlerV2 := handlers.NewCustomerHttpHandler(customerSvcV2)
 	imageHandler := handlers.NewImageHandler()
+
+	// gRPC Handlers
+	authGrpcHandler := handlers.NewAuthGrpcHandler(authSvc)
+	customerGrpcHandler := handlers.NewCustomerGrpcHandler(customerSvcV1)
+
+	// interceptors
+	authInterceptor := interceptors.AuthUnaryInterceptor(jwtValidator, interceptors.UnaryApplicableForService("CustomerService"))
+	validatorInterceptor := interceptors.ValidatorUnaryInterceptor(true)
+	errorInterceptor := interceptors.ErrorUnaryInterceptor(logger)
 
 	images := e.Group("/images")
 	{
@@ -169,30 +183,30 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 		// auth
 		authApi := api.Group("/auth")
 		{
-			authApi.POST("/signup", authHandler.Signup)
-			authApi.POST("/login", authHandler.Login)
-			authApi.POST("/logout", authHandler.Logout)
-			authApi.POST("/refresh", authHandler.Refresh)
+			authApi.POST("/signup", authHttpHandler.Signup)
+			authApi.POST("/login", authHttpHandler.Login)
+			authApi.POST("/logout", authHttpHandler.Logout)
+			authApi.POST("/refresh", authHttpHandler.Refresh)
 		}
 
 		// customers v1
 		customersApiV1 := api.Group("/v1/customers", authorizeMw)
 		{
-			customersApiV1.GET("", customerHandlerV1.GetAll)
-			customersApiV1.GET("/:id", customerHandlerV1.Get)
-			customersApiV1.POST("", customerHandlerV1.Post)
-			customersApiV1.PUT("/:id", customerHandlerV1.Put)
-			customersApiV1.DELETE("/:id", customerHandlerV1.DeleteById)
+			customersApiV1.GET("", customerHttpHandlerV1.GetAll)
+			customersApiV1.GET("/:id", customerHttpHandlerV1.Get)
+			customersApiV1.POST("", customerHttpHandlerV1.Post)
+			customersApiV1.PUT("/:id", customerHttpHandlerV1.Put)
+			customersApiV1.DELETE("/:id", customerHttpHandlerV1.DeleteById)
 		}
 
 		// customers v2
 		customersApiV2 := api.Group("/v2/customers", authorizeMw)
 		{
-			customersApiV2.GET("", customerHandlerV2.GetAll)
-			customersApiV2.GET("/:id", customerHandlerV2.Get)
-			customersApiV2.POST("", customerHandlerV2.Post)
-			customersApiV2.PUT("/:id", customerHandlerV2.Put)
-			customersApiV2.DELETE("/:id", customerHandlerV2.DeleteById)
+			customersApiV2.GET("", customerHttpHandlerV2.GetAll)
+			customersApiV2.GET("/:id", customerHttpHandlerV2.Get)
+			customersApiV2.POST("", customerHttpHandlerV2.Post)
+			customersApiV2.PUT("/:id", customerHttpHandlerV2.Put)
+			customersApiV2.DELETE("/:id", customerHttpHandlerV2.DeleteById)
 		}
 	}
 
@@ -202,14 +216,43 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 	errorCh := make(chan error, 1)
 	signal.Notify(shutdownCh, os.Interrupt)
 
+	// start HTTP server
 	go func() {
-		logger.Infof("Starting server at port :%d", Port)
-		errorCh <- e.Start(fmt.Sprintf(":%d", Port))
+		logger.Infof("Starting HTTP server at port :%d", HttpPort)
+		if err := e.Start(fmt.Sprintf(":%d", HttpPort)); err != nil {
+			logger.Error("HTTP server raised error")
+			errorCh <- err
+		}
 	}()
 
+	// start gRPC server
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", GrpcPort))
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	grpcSvc := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			authInterceptor,
+			validatorInterceptor,
+			errorInterceptor,
+		),
+	)
+
+	proto.RegisterAuthServiceServer(grpcSvc, authGrpcHandler)
+	proto.RegisterCustomerServiceServer(grpcSvc, customerGrpcHandler)
+
+	go func() {
+		logger.Infof("Starting gRPC server at port :%d", GrpcPort)
+		if err := grpcSvc.Serve(lis); err != nil {
+			logger.Error("gRPC server raised error")
+			errorCh <- err
+		}
+	}()
+
+	// start redis steam listen loop
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	go readCustomersStream(ctx, redisClient, logger, inMemoryCustomerCache)
 
 	select {
@@ -217,13 +260,17 @@ func start(pgPool *pgxpool.Pool, mongoClient *mongo.Client, redisClient *redis.C
 		ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
 
-		logger.Infof("shutdown signal has been sent, stopping the server...")
+		logger.Info("shutdown signal has been sent")
+		logger.Info("stopping the HTTP server...")
 		if err := e.Shutdown(ctx); err != nil {
 			logger.Errorf("failed to stop server gracefully - %v", err)
 		}
+
+		logger.Info("stopping the gRPC server...")
+		grpcSvc.Stop()
 	case err := <-errorCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			logger.Errorf("shutting down the server because of unexpected error - %v", err)
+			logger.Errorf("shutting down the servers because of unexpected error - %v", err)
 		}
 	}
 }
