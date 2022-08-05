@@ -23,7 +23,7 @@ services:
     restart: always
     depends_on:
       - pg-customers
-      - migrate
+      - flyway
       - mongo-customers
       - redis-customers
     ports:
@@ -53,7 +53,6 @@ services:
     volumes:
       - customer-redis:/data
 
-
   mongo-customers:
     image: "mongo:latest"
     environment:
@@ -64,14 +63,11 @@ services:
     volumes:
       - mongocustomers:/data/db
 
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile.migrate
-    image: umalmyha/migrate
+  flyway:
+    image: flyway/flyway
+    command: -url=jdbc:postgresql://pg-customers:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -connectRetries=60 migrate
     volumes:
-      - ./migrations:/migrations
-    command: bash -c "./wait-for-it.sh pg-customers:5432 --timeout=5 && migrate -path /migrations -database ${POSTGRES_URL} up"
+      - ./migrations:/flyway/sql
     depends_on:
       - pg-customers
 

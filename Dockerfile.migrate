@@ -1,8 +1,0 @@
-FROM migrate/migrate:latest
-
-COPY ./scripts/wait-for-it.sh .
-
-RUN apk update && apk add bash
-
-ENTRYPOINT []
-CMD []
