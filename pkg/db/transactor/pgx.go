@@ -2,6 +2,7 @@ package transactor
 
 import (
 	"context"
+
 	"github.com/jackc/pgtype/pgxtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -20,6 +21,7 @@ func pgxTxValue(ctx context.Context) pgx.Tx {
 	return nil
 }
 
+// PgxTransactor represents pgx transactor behavior
 type PgxTransactor interface {
 	Transactor
 	WithinTransactionWithOptions(context.Context, func(context.Context) error, pgx.TxOptions) error
@@ -29,6 +31,7 @@ type pgxTransactor struct {
 	pool *pgxpool.Pool
 }
 
+// NewPgxTransactor builds new PgxTransactor
 func NewPgxTransactor(p *pgxpool.Pool) PgxTransactor {
 	return &pgxTransactor{pool: p}
 }
@@ -65,10 +68,12 @@ func (t *pgxTransactor) WithinTransactionWithOptions(ctx context.Context, txFunc
 	return err
 }
 
+// PgxWithinTransactionExecutor represents query executor retriever for pgx
 type PgxWithinTransactionExecutor interface {
 	Executor(ctx context.Context) PgxQueryExecutor
 }
 
+// PgxQueryExecutor represents query executor behavior
 type PgxQueryExecutor interface {
 	pgxtype.Querier
 	Begin(context.Context) (pgx.Tx, error)
@@ -80,6 +85,7 @@ type pgxWithinTransactionExecutor struct {
 	pool *pgxpool.Pool
 }
 
+// NewPgxWithinTransactionExecutor builds new PgxWithinTransactionExecutor
 func NewPgxWithinTransactionExecutor(p *pgxpool.Pool) PgxWithinTransactionExecutor {
 	return &pgxWithinTransactionExecutor{pool: p}
 }

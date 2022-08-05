@@ -4,7 +4,14 @@ package auth;
 import "google/protobuf/empty.proto";
 import "validate/validate.proto";
 
-option go_package = "github.com/umalmyha/customers/internal/proto";
+option go_package = "github.com/umalmyha/customers/proto";
+
+service AuthService {
+  rpc Signup(SignupRequest) returns (NewUserResponse);
+  rpc Login(LoginRequest) returns (SessionResponse);
+  rpc Logout(LogoutRequest) returns (google.protobuf.Empty);
+  rpc Refresh(RefreshRequest) returns (SessionResponse);
+}
 
 message SignupRequest {
   string email = 1 [(validate.rules).string.email = true];
@@ -35,11 +42,4 @@ message SessionResponse {
   string token = 1;
   int64 expires_at = 2;
   string refresh_token = 3;
-}
-
-service AuthService {
-  rpc Signup(SignupRequest) returns (NewUserResponse);
-  rpc Login(LoginRequest) returns (SessionResponse);
-  rpc Logout(LogoutRequest) returns (google.protobuf.Empty);
-  rpc Refresh(RefreshRequest) returns (SessionResponse);
 }

@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -12,6 +13,7 @@ type validator interface {
 	ValidateAll() error
 }
 
+// ValidatorUnaryInterceptor runs validation on payload if it implements validator interface
 func ValidatorUnaryInterceptor(all bool, applicables ...UnaryInterceptorApplicable) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 		if !isUnaryInterceptorApplicable(info, applicables...) {

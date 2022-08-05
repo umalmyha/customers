@@ -25,7 +25,7 @@ swagger-gen:
 
 proto-gen:
 	@echo starting to generate code for gRPC...
-	protoc -Iinternal/proto --go_out=. --go_opt=module=github.com/umalmyha/customers --go-grpc_out=. --go-grpc_opt=module=github.com/umalmyha/customers --validate_out=paths=source_relative,lang=go:./internal/proto ./internal/proto/*.proto
+	protoc -Iproto --go_out=. --go_opt=module=github.com/umalmyha/customers --go-grpc_out=. --go-grpc_opt=module=github.com/umalmyha/customers --validate_out=paths=source_relative,lang=go:./proto ./proto/*.proto
 	@echo gRPC code has been generated
 
 

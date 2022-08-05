@@ -3,55 +3,55 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
+	"github.com/umalmyha/customers/internal/auth"
 	"github.com/umalmyha/customers/internal/config"
-	"github.com/umalmyha/customers/internal/model/auth"
+	"github.com/umalmyha/customers/internal/model"
 	"github.com/umalmyha/customers/internal/repository"
 	"github.com/umalmyha/customers/pkg/db/transactor"
-	"net/http"
-	"time"
 )
 
+// AuthService represents auth service behavior
 type AuthService interface {
-	Signup(context.Context, string, string) (*auth.User, error)
-	Login(context.Context, string, string, string, time.Time) (*auth.Jwt, *auth.RefreshToken, error)
+	Signup(context.Context, string, string) (*model.User, error)
+	Login(context.Context, string, string, string, time.Time) (*auth.Jwt, *model.RefreshToken, error)
 	Logout(context.Context, string) error
-	Refresh(context.Context, string, string, time.Time) (*auth.Jwt, *auth.RefreshToken, error)
+	Refresh(context.Context, string, string, time.Time) (*auth.Jwt, *model.RefreshToken, error)
 }
 
 type authService struct {
-	transactor  transactor.Transactor
+	txtor       transactor.Transactor
 	userRps     repository.UserRepository
 	rfrTknRps   repository.RefreshTokenRepository
-	logger      logrus.FieldLogger
 	jwtIssuer   *auth.JwtIssuer
-	rfrTokenCfg config.RefreshTokenCfg
+	rfrTokenCfg *config.RefreshTokenCfg
 }
 
+// NewAuthService builds new authService
 func NewAuthService(
 	jwtIssuer *auth.JwtIssuer,
-	rfrTokenCfg config.RefreshTokenCfg,
-	transactor transactor.Transactor,
+	rfrTokenCfg *config.RefreshTokenCfg,
+	txtor transactor.Transactor,
 	userRps repository.UserRepository,
 	rfrTknRps repository.RefreshTokenRepository,
-	logger logrus.FieldLogger,
 ) AuthService {
 	return &authService{
 		jwtIssuer:   jwtIssuer,
 		rfrTokenCfg: rfrTokenCfg,
-		transactor:  transactor,
+		txtor:       txtor,
 		userRps:     userRps,
 		rfrTknRps:   rfrTknRps,
-		logger:      logger,
 	}
 }
 
-func (s *authService) Signup(ctx context.Context, email string, password string) (*auth.User, error) {
+func (s *authService) Signup(ctx context.Context, email, password string) (*model.User, error) {
 	existingUser, err := s.userRps.FindByEmail(ctx, email)
 	if err != nil {
-		s.logger.Errorf("failed to check user %s presence, read failed - %v", email, err)
 		return nil, err
 	}
 
@@ -61,128 +61,117 @@ func (s *authService) Signup(ctx context.Context, email string, password string)
 
 	hash, err := auth.GeneratePasswordHash(password)
 	if err != nil {
-		s.logger.Errorf("password generation failed for user %s - %v", email, err)
 		return nil, echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("failed to generate password hash - %v", err))
 	}
 
-	u := &auth.User{
-		Id:           uuid.NewString(),
+	u := &model.User{
+		ID:           uuid.NewString(),
 		Email:        email,
 		PasswordHash: hash,
 	}
 
 	if err := s.userRps.Create(ctx, u); err != nil {
-		s.logger.Errorf("failed to create user %s - %v", email, err)
 		return nil, err
 	}
 	return u, nil
 }
 
-func (s *authService) Login(ctx context.Context, email string, password string, fingerprint string, now time.Time) (jwtToken *auth.Jwt, rfrToken *auth.RefreshToken, err error) {
-	err = s.transactor.WithinTransaction(ctx, func(ctx context.Context) error {
+func (s *authService) Login(ctx context.Context, email, password, fingerprint string, now time.Time) (jwtToken *auth.Jwt, rfrToken *model.RefreshToken, e error) {
+	e = s.txtor.WithinTransaction(ctx, func(ctx context.Context) error {
 		user, err := s.userRps.FindByEmail(ctx, email)
 		if err != nil {
-			s.logger.Errorf("failed to read user %s - %v", email, err)
 			return err
 		}
 
 		if user == nil {
-			s.logger.Errorf("user %s doesn't exist - unauthorized", email)
 			return echo.ErrUnauthorized
 		}
 
-		if err := user.VerifyPassword(password); err != nil {
-			s.logger.Errorf("user %s has provided incorrect password - unauthorized", email)
+		err = auth.VerifyPassword(user.PasswordHash, password)
+		if err != nil {
 			return echo.ErrUnauthorized
 		}
 
 		jwtToken, err = s.jwtIssuer.Sign(email, now)
 		if err != nil {
-			s.logger.Errorf("failed to sign jwt - %v", err)
 			return err
 		}
 
-		userTokens, err := s.rfrTknRps.FindTokensByUserId(ctx, user.Id)
+		userTokens, err := s.rfrTknRps.FindTokensByUserID(ctx, user.ID)
 		if err != nil {
-			s.logger.Errorf("failed to read refresh tokens for user %s - %v", user.Email, err)
 			return err
 		}
 
 		if len(userTokens) >= s.rfrTokenCfg.MaxCount {
-			s.logger.Infof("max refresh tokens count %d is exceeded for user %s - removing all tokens before generation of new one", s.rfrTokenCfg.MaxCount, user.Email)
-			if err := s.rfrTknRps.DeleteByUserId(ctx, user.Id); err != nil {
-				s.logger.Errorf("failed to delete refresh tokens for user %s - %v", user.Email, err)
+			logrus.Infof("max refresh tokens count %d is exceeded for user %s - removing all tokens before generation of new one", s.rfrTokenCfg.MaxCount, user.Email)
+			if err := s.rfrTknRps.DeleteByUserID(ctx, user.ID); err != nil {
 				return err
 			}
 		}
 
-		rfrToken = s.refreshToken(user.Id, fingerprint, now)
+		rfrToken = s.refreshToken(user.ID, fingerprint, now)
 		if err := s.rfrTknRps.Create(ctx, rfrToken); err != nil {
-			s.logger.Errorf("failed to create refresh token for user %s - %v", user.Email, err)
 			return err
 		}
 
 		return nil
 	})
 
-	return jwtToken, rfrToken, err
+	return jwtToken, rfrToken, e
 }
 
-func (s *authService) Refresh(ctx context.Context, rfrTokenId string, fingerprint string, now time.Time) (*auth.Jwt, *auth.RefreshToken, error) {
-	rfrToken, err := s.rfrTknRps.FindById(ctx, rfrTokenId)
+func (s *authService) Refresh(ctx context.Context, rfrTokenID, fingerprint string, now time.Time) (*auth.Jwt, *model.RefreshToken, error) {
+	rfrToken, err := s.rfrTknRps.FindByID(ctx, rfrTokenID)
 	if err != nil {
-		s.logger.Errorf("failed to read refresh token %s - %v", rfrTokenId, err)
 		return nil, nil, err
 	}
 
 	if rfrToken == nil {
-		s.logger.Errorf("refresh token %s doesn't exist", rfrTokenId)
 		return nil, nil, echo.NewHTTPError(http.StatusBadRequest, "invalid refresh token provided")
 	}
 
-	if err := s.rfrTknRps.DeleteById(ctx, rfrToken.Id); err != nil {
-		s.logger.Errorf("failed to delete refresh token %s - %v", rfrTokenId, err)
+	err = s.rfrTknRps.DeleteByID(ctx, rfrToken.ID)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := rfrToken.Verify(fingerprint, now); err != nil {
-		s.logger.Errorf("refresh token %s verification failed - %v", rfrTokenId, err)
-		return nil, nil, echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	if rfrToken.Fingerprint != fingerprint {
+		return nil, nil, echo.NewHTTPError(http.StatusBadRequest, "invalid fingerprint provided")
 	}
 
-	user, err := s.userRps.FindById(ctx, rfrToken.UserId)
+	if rfrToken.CreatedAt.Add(time.Duration(rfrToken.ExpiresIn) * time.Second).Before(now) {
+		return nil, nil, echo.NewHTTPError(http.StatusBadRequest, "refresh token already expired")
+	}
+
+	user, err := s.userRps.FindByID(ctx, rfrToken.UserID)
 	if err != nil {
-		s.logger.Errorf("failed to read user with id %s - %v", rfrToken.UserId, err)
 		return nil, nil, err
 	}
 
 	jwtToken, err := s.jwtIssuer.Sign(user.Email, now)
 	if err != nil {
-		s.logger.Errorf("failed to sign jwt - %v", err)
 		return nil, nil, err
 	}
 
-	newRfrToken := s.refreshToken(user.Id, fingerprint, now)
+	newRfrToken := s.refreshToken(user.ID, fingerprint, now)
 	if err := s.rfrTknRps.Create(ctx, newRfrToken); err != nil {
-		s.logger.Errorf("failed to create refresh token for user %s - %v", user.Email, err)
 		return nil, nil, err
 	}
 
 	return jwtToken, newRfrToken, nil
 }
 
-func (s *authService) Logout(ctx context.Context, rfrTokenId string) error {
-	if err := s.rfrTknRps.DeleteById(ctx, rfrTokenId); err != nil {
-		s.logger.Errorf("failed to delete refresh token - %v", err)
+func (s *authService) Logout(ctx context.Context, rfrTokenID string) error {
+	if err := s.rfrTknRps.DeleteByID(ctx, rfrTokenID); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *authService) refreshToken(userId string, fingerprint string, createdAt time.Time) *auth.RefreshToken {
-	return &auth.RefreshToken{
-		Id:          uuid.NewString(),
-		UserId:      userId,
+func (s *authService) refreshToken(userID, fingerprint string, createdAt time.Time) *model.RefreshToken {
+	return &model.RefreshToken{
+		ID:          uuid.NewString(),
+		UserID:      userID,
 		Fingerprint: fingerprint,
 		ExpiresIn:   int(s.rfrTokenCfg.TimeToLive.Seconds()),
 		CreatedAt:   createdAt,

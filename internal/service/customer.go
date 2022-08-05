@@ -2,82 +2,110 @@ package service
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"github.com/umalmyha/customers/internal/model/customer"
+	"github.com/umalmyha/customers/internal/cache"
+	"github.com/umalmyha/customers/internal/model"
 	"github.com/umalmyha/customers/internal/repository"
 )
 
+// CustomerService represents behavior of customer service
 type CustomerService interface {
-	FindAll(context.Context) ([]*customer.Customer, error)
-	FindById(context.Context, string) (*customer.Customer, error)
-	Create(context.Context, *customer.Customer) (*customer.Customer, error)
-	DeleteById(context.Context, string) error
-	Upsert(context.Context, *customer.Customer) (*customer.Customer, error)
+	FindAll(context.Context) ([]*model.Customer, error)
+	FindByID(context.Context, string) (*model.Customer, error)
+	Create(context.Context, *model.Customer) (*model.Customer, error)
+	DeleteByID(context.Context, string) error
+	Upsert(context.Context, *model.Customer) (*model.Customer, error)
 }
 
 type customerService struct {
 	customerRps repository.CustomerRepository
-	logger      logrus.FieldLogger
+	cacheRps    cache.CustomerCacheRepository
 }
 
-func NewCustomerService(customerRps repository.CustomerRepository, logger logrus.FieldLogger) CustomerService {
-	return &customerService{customerRps: customerRps, logger: logger}
+// NewCustomerService builds new customerService
+func NewCustomerService(
+	customerRps repository.CustomerRepository,
+	cacheRps cache.CustomerCacheRepository,
+) CustomerService {
+	return &customerService{customerRps: customerRps, cacheRps: cacheRps}
 }
 
-func (s *customerService) Create(ctx context.Context, c *customer.Customer) (*customer.Customer, error) {
-	c.Id = uuid.NewString()
+func (s *customerService) Create(ctx context.Context, c *model.Customer) (*model.Customer, error) {
+	c.ID = uuid.NewString()
 	if err := s.customerRps.Create(ctx, c); err != nil {
-		s.logger.Errorf("failed to create customer - %v", err)
 		return nil, err
 	}
 	return c, nil
 }
 
-func (s *customerService) DeleteById(ctx context.Context, id string) error {
-	if err := s.customerRps.DeleteById(ctx, id); err != nil {
-		s.logger.Errorf("failed to delete customer with id %s - %v", id, err)
+func (s *customerService) DeleteByID(ctx context.Context, id string) error {
+	if err := s.cacheRps.DeleteByID(ctx, id); err != nil {
+		return err
+	}
+
+	if err := s.customerRps.DeleteByID(ctx, id); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *customerService) FindById(ctx context.Context, id string) (*customer.Customer, error) {
-	c, err := s.customerRps.FindById(ctx, id)
+func (s *customerService) FindByID(ctx context.Context, id string) (*model.Customer, error) {
+	c, err := s.cacheRps.FindByID(ctx, id)
 	if err != nil {
-		s.logger.Errorf("failed to read customer with id %s - %v", id, err)
 		return nil, err
 	}
+
+	if c != nil {
+		return c, nil
+	}
+
+	c, err = s.customerRps.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if c == nil {
+		return nil, nil
+	}
+
+	if err := s.cacheRps.Create(ctx, c); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }
 
-func (s *customerService) FindAll(ctx context.Context) ([]*customer.Customer, error) {
+func (s *customerService) FindAll(ctx context.Context) ([]*model.Customer, error) {
 	customers, err := s.customerRps.FindAll(ctx)
 	if err != nil {
-		s.logger.Errorf("failed to read all customers - %v", err)
+		logrus.Errorf("failed to read all customers - %v", err)
 		return nil, err
 	}
 	return customers, nil
 }
 
-func (s *customerService) Upsert(ctx context.Context, c *customer.Customer) (*customer.Customer, error) {
-	existingCustomer, err := s.customerRps.FindById(ctx, c.Id)
+func (s *customerService) Upsert(ctx context.Context, c *model.Customer) (*model.Customer, error) {
+	existingCustomer, err := s.customerRps.FindByID(ctx, c.ID)
 	if err != nil {
-		s.logger.Errorf("failed to read customer with id %s - %v", c.Id, err)
 		return nil, err
 	}
 
 	if existingCustomer == nil {
-		s.logger.Infof("customer with id %s doesn't exist, creating...", c.Id)
 		if err := s.customerRps.Create(ctx, c); err != nil {
 			return nil, err
 		}
 		return c, nil
 	}
 
-	if err := s.customerRps.Update(ctx, c); err != nil {
-		s.logger.Errorf("failed to update customer with id %s - %v", c.Id, err)
+	if err := s.cacheRps.DeleteByID(ctx, c.ID); err != nil {
 		return nil, err
 	}
+
+	if err := s.customerRps.Update(ctx, c); err != nil {
+		return nil, err
+	}
+
 	return c, nil
 }

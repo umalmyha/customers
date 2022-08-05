@@ -3,16 +3,14 @@ package interceptors
 import (
 	"context"
 	"errors"
+	"net/http"
+
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/http"
 )
-
-type errorLogger interface {
-	Errorf(format string, args ...any)
-}
 
 func httpToGrpcCode(s int) codes.Code {
 	switch s {
@@ -27,7 +25,8 @@ func httpToGrpcCode(s int) codes.Code {
 	}
 }
 
-func ErrorUnaryInterceptor(logger errorLogger, applicables ...UnaryInterceptorApplicable) grpc.UnaryServerInterceptor {
+// ErrorUnaryInterceptor converts error retrieved from handler to gRPC error with corresponding code
+func ErrorUnaryInterceptor(applicables ...UnaryInterceptorApplicable) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
 		if !isUnaryInterceptorApplicable(info, applicables...) {
 			return h(ctx, req)
@@ -35,9 +34,9 @@ func ErrorUnaryInterceptor(logger errorLogger, applicables ...UnaryInterceptorAp
 
 		res, err := h(ctx, req)
 		if err == nil {
-			return res, err
+			return res, nil
 		}
-		logger.Errorf("error occurred on grpc request processing - %v", err)
+		logrus.Errorf("error occurred on grpc request processing - %v", err)
 
 		if _, ok := status.FromError(err); ok { // it is already grpc status error
 			return nil, err

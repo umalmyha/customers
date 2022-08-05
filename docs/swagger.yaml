@@ -1,22 +1,5 @@
 basePath: /
 definitions:
-  customer.Customer:
-    properties:
-      email:
-        type: string
-      firstName:
-        type: string
-      id:
-        type: string
-      importance:
-        type: integer
-      inactive:
-        type: boolean
-      lastName:
-        type: string
-      middleName:
-        type: string
-    type: object
   echo.HTTPError:
     properties:
       message: {}
@@ -131,6 +114,23 @@ definitions:
     - id
     - importance
     - lastName
+    type: object
+  model.Customer:
+    properties:
+      email:
+        type: string
+      firstName:
+        type: string
+      id:
+        type: string
+      importance:
+        type: integer
+      inactive:
+        type: boolean
+      lastName:
+        type: string
+      middleName:
+        type: string
     type: object
 host: localhost:3000
 info:
@@ -271,7 +271,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/customer.Customer'
+              $ref: '#/definitions/model.Customer'
             type: array
         "400":
           description: Bad Request
@@ -303,7 +303,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
@@ -360,7 +360,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
@@ -397,7 +397,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
@@ -421,7 +421,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/customer.Customer'
+              $ref: '#/definitions/model.Customer'
             type: array
         "400":
           description: Bad Request
@@ -453,7 +453,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
@@ -510,7 +510,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
@@ -547,7 +547,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/customer.Customer'
+            $ref: '#/definitions/model.Customer'
         "400":
           description: Bad Request
           schema:
