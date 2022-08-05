@@ -28,4 +28,9 @@ proto-gen:
 	protoc -Iproto --go_out=. --go_opt=module=github.com/umalmyha/customers --go-grpc_out=. --go-grpc_opt=module=github.com/umalmyha/customers --validate_out=paths=source_relative,lang=go:./proto ./proto/*.proto
 	@echo gRPC code has been generated
 
+test:
+	@echo starting to run tests...
+	go test ./internal/repository -v -cover
+	@echo test execution completed
+
 
