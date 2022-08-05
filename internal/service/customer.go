@@ -66,6 +66,10 @@ func (s *customerService) FindByID(ctx context.Context, id string) (*model.Custo
 		return nil, err
 	}
 
+	if c == nil {
+		return nil, nil
+	}
+
 	if err := s.cacheRps.Create(ctx, c); err != nil {
 		return nil, err
 	}
