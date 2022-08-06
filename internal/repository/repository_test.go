@@ -5,24 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ory/dockertest/v3/docker"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/umalmyha/customers/internal/model"
 	"github.com/umalmyha/customers/pkg/db/transactor"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/labstack/gommon/log"
 	"github.com/ory/dockertest/v3"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 const (
 	connectionTimeout = 3 * time.Second
+	testCtxTimeout    = 10 * time.Second
 )
 
 const (
@@ -40,27 +39,44 @@ const (
 	mongoTestPassword  = "test"
 )
 
-var pgPool *pgxpool.Pool
-var mongoClient *mongo.Client
+type dockerResources struct {
+	postgres *dockertest.Resource
+	mongodb  *dockertest.Resource
+	network  *docker.Network
+}
 
-func TestMain(m *testing.M) {
+type repositoryTestSuite struct {
+	suite.Suite
+	dockerPool  *dockertest.Pool
+	resources   dockerResources
+	pgPool      *pgxpool.Pool
+	mongoClient *mongo.Client
+}
+
+func (s *repositoryTestSuite) SetupSuite() {
+	t := s.T()
+	require := s.Require()
+
 	// build docker pool
+	t.Log("build docker pool")
 	dockerPool, err := dockertest.NewPool("")
-	if err != nil {
-		log.Fatalf("failed to create pool - %v", err)
-	}
+	require.NoError(err, "failed to create pool")
 
-	if err := dockerPool.Client.Ping(); err != nil {
-		log.Fatalf("failed to connect to docker - %v", err)
-	}
+	t.Log("sending ping to docker...")
+	err = dockerPool.Client.Ping()
+	require.NoError(err, "failed to connect to docker")
+
+	s.dockerPool = dockerPool // assign pool
 
 	// create network for containers
+	t.Log("creating network...")
 	network, err := dockerPool.Client.CreateNetwork(docker.CreateNetworkOptions{Name: "customers-test-net"})
-	if err != nil {
-		log.Fatalf("failed to create network - %v", err)
-	}
+	require.NoError(err, "failed to create network")
+
+	s.resources.network = network // assign network
 
 	// start postgres
+	t.Log("starting postgres container...")
 	postgres, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Name:       pgContainerName,
 		Repository: "postgres",
@@ -75,11 +91,10 @@ func TestMain(m *testing.M) {
 			"5432/tcp": {{HostIP: "localhost", HostPort: fmt.Sprintf("%s/tcp", pgPort)}},
 		},
 	})
-	if err != nil {
-		log.Fatalf("failed to start postgresql - %v", err)
-	}
+	require.NoError(err, "failed to start postgresql")
 
 	// run migrations
+	t.Log("run flyway migrations...")
 	flywayCmd := []string{
 		fmt.Sprintf("-url=jdbc:postgresql://%s:%s/%s", pgContainerName, pgPort, pgTestDB),
 		fmt.Sprintf("-user=%s", pgTestUser),
@@ -89,13 +104,9 @@ func TestMain(m *testing.M) {
 	}
 
 	migrationsPath, err := filepath.Abs("../../migrations")
-	if err != nil {
-		log.Fatalf("failed to find migrations path - %v", err)
-	}
+	require.NoError(err, "failed to build path to flyway migrations")
 
-	flywayMounts := []string{
-		fmt.Sprintf("%s:/flyway/sql", migrationsPath),
-	}
+	flywayMounts := []string{fmt.Sprintf("%s:/flyway/sql", migrationsPath)}
 
 	flyway, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Repository: "flyway/flyway",
@@ -106,9 +117,9 @@ func TestMain(m *testing.M) {
 	}, func(config *docker.HostConfig) {
 		config.AutoRemove = true
 	})
-	if err != nil {
-		log.Fatalf("failed to start flyway migrations - %v", err)
-	}
+	require.NoError(err, "failed to start flyway migrations")
+
+	s.resources.postgres = postgres // assign postgres
 
 	// waiting for flyway container to be destroyed
 	err = dockerPool.Retry(func() error {
@@ -117,28 +128,26 @@ func TestMain(m *testing.M) {
 		}
 		return nil
 	})
-	if err != nil {
-		log.Fatalf("failed to await flyway migrations - %v", err)
-	}
+	require.NoError(err, "failed to await flyway migrations")
 
 	// connect to postgres
+	t.Log("connecting to postgres...")
 	pgUri := fmt.Sprintf("postgres://%s:%s@localhost:%s/%s?sslmode=disable", pgTestUser, pgTestPassword, pgPort, pgTestDB)
 	err = dockerPool.Retry(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout)
 		defer cancel()
 
 		var err error
-		pgPool, err = pgxpool.Connect(ctx, pgUri)
+		s.pgPool, err = pgxpool.Connect(ctx, pgUri)
 		if err != nil {
 			return err
 		}
-		return pgPool.Ping(ctx)
+		return s.pgPool.Ping(ctx)
 	})
-	if err != nil {
-		log.Fatalf("failed to establish connection to postgresql - %v", err)
-	}
+	require.NoError(err, "failed to establish connection to postgresql")
 
 	// start mongo
+	t.Log("starting mongodb...")
 	mongodb, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
 		Name:       mongoContainerName,
 		Repository: "mongo",
@@ -152,53 +161,76 @@ func TestMain(m *testing.M) {
 			"27017/tcp": {{HostIP: "localhost", HostPort: fmt.Sprintf("%s/tcp", mongoPort)}},
 		},
 	})
-	if err != nil {
-		log.Fatalf("failed to start mongodb - %v", err)
-	}
+	require.NoError(err, "failed to start mongodb")
+
+	s.resources.mongodb = mongodb // assign mongodb
 
 	// connect to mongo
-	mongoUri := fmt.Sprintf("mongodb://%s:%s@localhost:%s/?maxPoolSize=100", mongoTestUser, mongoTestPassword, mongoPort)
+	t.Log("connecting to mongodb...")
+	mongoUri := fmt.Sprintf("mongodb://%s:%s@localhost:%s", mongoTestUser, mongoTestPassword, mongoPort)
 	err = dockerPool.Retry(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), connectionTimeout)
 		defer cancel()
 
 		var err error
-		mongoClient, err = mongo.Connect(ctx, options.Client().ApplyURI(mongoUri))
+		s.mongoClient, err = mongo.Connect(ctx, options.Client().ApplyURI(mongoUri))
 		if err != nil {
 			return err
 		}
-		return mongoClient.Ping(ctx, readpref.Primary())
+		return s.mongoClient.Ping(ctx, readpref.Primary())
 	})
-	if err != nil {
-		log.Fatalf("failed to establish connection to mongodb - %v", err)
-	}
-
-	// start tests
-	code := m.Run()
-
-	// purge postgresql
-	if err := dockerPool.Purge(postgres); err != nil {
-		log.Fatalf("failed to purge postgresql - %v", err)
-	}
-
-	// purge mongodb
-	if err := dockerPool.Purge(mongodb); err != nil {
-		log.Fatalf("failed to purge mongodb - %v", err)
-	}
-
-	// remove network
-	if err := dockerPool.Client.RemoveNetwork(network.ID); err != nil {
-		log.Fatalf("failed to remove network - %v", err)
-	}
-
-	os.Exit(code)
+	require.NoError(err, "failed to establish connection to mongodb")
 }
 
-func TestUserRps(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (s *repositoryTestSuite) TearDownSuite() {
+	t := s.T()
+
+	if s.pgPool != nil {
+		t.Log("closing connection to postgres")
+		s.pgPool.Close()
+	}
+
+	if s.mongoClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := s.mongoClient.Disconnect(ctx)
+		if err != nil {
+			t.Logf("failed to gracefully close connection to mongodb - %v", err)
+		}
+		cancel()
+	}
+
+	resources := s.resources
+
+	if resources.postgres != nil {
+		err := s.dockerPool.Purge(resources.postgres)
+		if err != nil {
+			t.Logf("failed to purge postgres container - %v", err)
+		}
+	}
+
+	if resources.mongodb != nil {
+		err := s.dockerPool.Purge(resources.mongodb)
+		if err != nil {
+			t.Logf("failed to purge mongodb container - %v", err)
+		}
+	}
+
+	if resources.network != nil {
+		err := s.dockerPool.Client.RemoveNetwork(resources.network.ID)
+		if err != nil {
+			t.Logf("failed to delete network - %v", err)
+		}
+	}
+}
+
+func (s *repositoryTestSuite) TestUserRps() {
+	t := s.T()
+	require := s.Require()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testCtxTimeout)
 	defer cancel()
 
-	userRps := NewPostgresUserRepository(transactor.NewPgxWithinTransactionExecutor(pgPool))
+	userRps := NewPostgresUserRepository(transactor.NewPgxWithinTransactionExecutor(s.pgPool))
 
 	u := &model.User{
 		ID:           "f9771714-df35-4186-b1f1-57fba3e5d3f2",
@@ -209,40 +241,43 @@ func TestUserRps(t *testing.T) {
 	t.Log("create user")
 	{
 		err := userRps.Create(ctx, u)
-		require.NoError(t, err, "failed to create user")
+		require.NoError(err, "failed to create user")
 	}
 
 	t.Log("find user by id")
 	{
 		dbUser, err := userRps.FindByID(ctx, u.ID)
-		require.NoError(t, err, "failed to read user by id")
-		require.NotNil(t, dbUser, "user was created recently but not found by id")
+		require.NoError(err, "failed to read user by id")
+		require.NotNil(dbUser, "user was created recently but not found by id")
 	}
 
 	t.Log("find user by email")
 	{
 		dbUser, err := userRps.FindByEmail(ctx, u.Email)
-		require.NoError(t, err, "failed to read user by email")
-		require.NotNil(t, dbUser, "user was created recently but not found by email")
+		require.NoError(err, "failed to read user by email")
+		require.NotNil(dbUser, "user was created recently but not found by email")
 	}
 
 	t.Log("create user duplicate")
 	{
 		err := userRps.Create(ctx, u)
-		require.Error(t, err, "aimed to create user duplicate but no error raised")
+		require.Error(err, "aimed to create user duplicate but no error raised")
 	}
 }
 
-func TestRefreshTokenRps(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (s *repositoryTestSuite) TestRefreshTokenRps() {
+	t := s.T()
+	require := s.Require()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testCtxTimeout)
 	defer cancel()
 
 	expiresIn := 3000
 	fingerprint := "b86de171-7481-4b57-a012-765e6e34e2c2"
 	createdAt := time.Now().UTC()
 
-	userRps := NewPostgresUserRepository(transactor.NewPgxWithinTransactionExecutor(pgPool))
-	rfrTokenRps := NewPostgresRefreshTokenRepository(transactor.NewPgxWithinTransactionExecutor(pgPool))
+	userRps := NewPostgresUserRepository(transactor.NewPgxWithinTransactionExecutor(s.pgPool))
+	rfrTokenRps := NewPostgresRefreshTokenRepository(transactor.NewPgxWithinTransactionExecutor(s.pgPool))
 
 	userJohn := &model.User{
 		ID:           "afa94457-c29a-4569-a4aa-0ae3b7e5a255",
@@ -286,79 +321,80 @@ func TestRefreshTokenRps(t *testing.T) {
 	t.Log("reference users must be added")
 	{
 		err := userRps.Create(ctx, userJohn)
-		require.NoError(t, err, "failed to create user %s", userJohn.Email)
+		require.NoError(err, "failed to create user %s", userJohn.Email)
 
 		err = userRps.Create(ctx, userHenry)
-		require.NoError(t, err, "failed to create user %s", userHenry.Email)
+		require.NoError(err, "failed to create user %s", userHenry.Email)
 	}
 
 	t.Logf("create %d tokens", len(refreshTokens))
 	{
 		for _, tkn := range refreshTokens {
 			err := rfrTokenRps.Create(ctx, tkn)
-			require.NoError(t, err, "failed to create token %s", tkn.ID)
+			require.NoError(err, "failed to create token %s", tkn.ID)
 		}
 	}
 
 	t.Logf("find tokens for user %s", userJohn.Email)
 	{
 		johnDBTokens, err := rfrTokenRps.FindTokensByUserID(ctx, userJohn.ID)
-		require.NoError(t, err, "failed to read tokens")
+		require.NoError(err, "failed to read tokens")
 		expected := 2
 		actual := len(johnDBTokens)
-		require.Equal(t, expected, actual, "%d tokens where created for user %s, got %d", expected, userJohn.Email, actual)
+		require.Equal(expected, actual, "%d tokens where created for user %s, got %d", expected, userJohn.Email, actual)
 	}
 
 	t.Logf("delete tokens for user %s", userJohn.Email)
 	{
 		err := rfrTokenRps.DeleteByUserID(ctx, userJohn.ID)
-		require.NoError(t, err, "failed to delete token")
+		require.NoError(err, "failed to delete token")
 	}
 
 	t.Logf("verify that tokens are not present in database")
 	{
 		johnDBTokens, err := rfrTokenRps.FindTokensByUserID(ctx, userJohn.ID)
-		require.NoError(t, err, "failed to read tokens")
+		require.NoError(err, "failed to read tokens")
 		expected := 0
 		actual := len(johnDBTokens)
-		require.Equal(t, expected, actual, "user %s tokens where deleted, but got %d tokens", userJohn.Email, actual)
+		require.Equal(expected, actual, "user %s tokens where deleted, but got %d tokens", userJohn.Email, actual)
 	}
 
 	t.Logf("find user %s single token", userHenry.Email)
 	{
 		henryDBToken, err := rfrTokenRps.FindByID(ctx, henryToken.ID)
-		require.NoError(t, err, "failed to read token")
-		require.NotNil(t, henryDBToken, "token was created for user %s, but not found in postgres", userHenry.Email)
+		require.NoError(err, "failed to read token")
+		require.NotNil(henryDBToken, "token was created for user %s, but not found in postgres", userHenry.Email)
 	}
 
 	t.Logf("delete user %s token", userHenry.Email)
 	{
 		err := rfrTokenRps.DeleteByID(ctx, henryToken.ID)
-		require.NoError(t, err, "failed to delete token")
+		require.NoError(err, "failed to delete token")
 	}
 
 	t.Logf("verify user %s token was deleted", userHenry.Email)
 	{
 		henryDBToken, err := rfrTokenRps.FindByID(ctx, henryToken.ID)
-		require.NoError(t, err, "failed to read token")
-		require.Nil(t, henryDBToken, "token for user %s was deleted, but still present in database", userHenry.Email)
+		require.NoError(err, "failed to read token")
+		require.Nil(henryDBToken, "token for user %s was deleted, but still present in database", userHenry.Email)
 	}
 }
 
-func TestPostgresCustomerRps(t *testing.T) {
-	customerRps := NewPostgresCustomerRepository(pgPool)
-	t.Log("running tests for postgres")
-	testCustomerRps(t, customerRps)
+func (s *repositoryTestSuite) TestPostgresCustomerRps() {
+	s.T().Log("running tests for postgres")
+	s.testCustomerRps(NewPostgresCustomerRepository(s.pgPool))
 }
 
-func TestMongoCustomerRps(t *testing.T) {
-	customerRps := NewMongoCustomerRepository(mongoClient)
-	t.Log("running tests for mongo")
-	testCustomerRps(t, customerRps)
+func (s *repositoryTestSuite) TestMongoCustomerRps() {
+	s.T().Log("running tests for mongo")
+	s.testCustomerRps(NewMongoCustomerRepository(s.mongoClient))
 }
 
-func testCustomerRps(t *testing.T, customerRps CustomerRepository) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (s *repositoryTestSuite) testCustomerRps(customerRps CustomerRepository) {
+	t := s.T()
+	require := s.Require()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testCtxTimeout)
 	defer cancel()
 
 	middleName := "Ben"
@@ -414,64 +450,69 @@ func testCustomerRps(t *testing.T, customerRps CustomerRepository) {
 		Inactive:   true,
 	}
 
-	t.Log("create 4 customers")
+	t.Logf("create %d customers", len(customers))
 	{
 		for _, c := range customers {
 			err := customerRps.Create(ctx, c)
-			require.NoError(t, err, "failed to create customer")
+			require.NoError(err, "failed to create customer")
 		}
 	}
 
 	t.Logf("verify %d customers in database", len(customers))
 	{
 		dbCustomers, err := customerRps.FindAll(ctx)
-		require.NoError(t, err, "failed to read customers")
+		require.NoError(err, "failed to read customers")
 		expected := len(customers)
 		actual := len(dbCustomers)
-		require.Equal(t, expected, actual, "%d customers were created, but got %d", expected, actual)
+		require.Equal(expected, actual, "%d customers were created, but got %d", expected, actual)
 	}
 
 	t.Logf("find customer by id %s", customerJohn.ID)
 	{
 		dbCustomer, err := customerRps.FindByID(ctx, customerJohn.ID)
-		require.NoError(t, err, "failed to read customer")
-		require.NotNil(t, dbCustomer, "customer was created, but not found in database")
-		require.Equal(t, customerJohn, dbCustomer, "customer created in database is not the same it was passed")
+		require.NoError(err, "failed to read customer")
+		require.NotNil(dbCustomer, "customer was created, but not found in database")
+		require.Equal(customerJohn, dbCustomer, "customer created in database is not the same it was passed")
 	}
 
 	t.Logf("update customer %s", customerJohn.ID)
 	{
 		err := customerRps.Update(ctx, customerJohnUpd)
-		require.NoError(t, err, "failed to update customer")
+		require.NoError(err, "failed to update customer")
 	}
 
 	t.Logf("find customer by id %s and verify it is updated", customerJohn.ID)
 	{
 		dbCustomer, err := customerRps.FindByID(ctx, customerJohn.ID)
-		require.NoError(t, err, "failed to read customer")
-		require.NotNil(t, dbCustomer, "customer was created and deleted, but not found in database")
-		require.Equal(t, customerJohnUpd, dbCustomer, "customer is in database, but wasn't updated correctly")
+		require.NoError(err, "failed to read customer")
+		require.NotNil(dbCustomer, "customer was created and deleted, but not found in database")
+		require.Equal(customerJohnUpd, dbCustomer, "customer is in database, but wasn't updated correctly")
 	}
 
 	t.Logf("delete customer by id %s", customerJohn.ID)
 	{
 		err := customerRps.DeleteByID(ctx, customerJohnUpd.ID)
-		require.NoError(t, err, "failed to delete customer")
+		require.NoError(err, "failed to delete customer")
 	}
 
 	t.Logf("verify customer %s is deleted", customerJohn.ID)
 	{
 		dbCustomer, err := customerRps.FindByID(ctx, customerJohnUpd.ID)
-		require.NoError(t, err, "failed to read customer by id")
-		require.Nil(t, dbCustomer, "customer was deleted, but still present in database")
+		require.NoError(err, "failed to read customer by id")
+		require.Nil(dbCustomer, "customer was deleted, but still present in database")
 	}
 
 	t.Logf("verify %d entries left", len(customers)-1)
 	{
 		dbCustomers, err := customerRps.FindAll(ctx)
-		require.NoError(t, err, "failed to read customers")
+		require.NoError(err, "failed to read customers")
 		expected := len(customers) - 1
 		actual := len(dbCustomers)
-		require.Equal(t, expected, actual, "there must be %d customers in database, but got %d", expected, actual)
+		require.Equal(expected, actual, "there must be %d customers in database, but got %d", expected, actual)
 	}
+}
+
+// start repository test suite
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(repositoryTestSuite))
 }
