@@ -29,8 +29,8 @@ proto-gen:
 	@echo gRPC code has been generated
 
 test:
-	@echo starting to run tests...
+	@echo running tests...
 	go test ./internal/repository -v -cover
-	@echo test execution completed
+	@echo test finished test execution
 
 
