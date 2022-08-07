@@ -192,8 +192,7 @@ func (s *repositoryTestSuite) TearDownSuite() {
 
 	if s.mongoClient != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		err := s.mongoClient.Disconnect(ctx)
-		if err != nil {
+		if err := s.mongoClient.Disconnect(ctx); err != nil {
 			t.Logf("failed to gracefully close connection to mongodb - %v", err)
 		}
 		cancel()
@@ -202,22 +201,19 @@ func (s *repositoryTestSuite) TearDownSuite() {
 	resources := s.resources
 
 	if resources.postgres != nil {
-		err := s.dockerPool.Purge(resources.postgres)
-		if err != nil {
+		if err := s.dockerPool.Purge(resources.postgres); err != nil {
 			t.Logf("failed to purge postgres container - %v", err)
 		}
 	}
 
 	if resources.mongodb != nil {
-		err := s.dockerPool.Purge(resources.mongodb)
-		if err != nil {
+		if err := s.dockerPool.Purge(resources.mongodb); err != nil {
 			t.Logf("failed to purge mongodb container - %v", err)
 		}
 	}
 
 	if resources.network != nil {
-		err := s.dockerPool.Client.RemoveNetwork(resources.network.ID)
-		if err != nil {
+		if err := s.dockerPool.Client.RemoveNetwork(resources.network.ID); err != nil {
 			t.Logf("failed to delete network - %v", err)
 		}
 	}

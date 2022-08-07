@@ -30,7 +30,14 @@ proto-gen:
 
 test:
 	@echo running tests...
-	go test ./internal/repository -v -cover
+	go test ./internal/repository ./internal/service -v -cover
 	@echo test finished test execution
+
+mocks-gen:
+	@echo generating repository and cache mocks
+	mockery --dir=./internal/repository --output=./internal/repository/mocks --all --with-expecter
+	mockery --dir=./pkg/db/transactor --output=./internal/repository/mocks --name=Transactor
+	mockery --dir=./internal/cache --output=./internal/cache/mocks --all --with-expecter
+	@echo mocks generation finished
 
 
