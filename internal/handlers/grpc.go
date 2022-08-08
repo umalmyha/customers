@@ -56,7 +56,7 @@ func (h *AuthGrpcHandler) Logout(ctx context.Context, req *proto.LogoutRequest) 
 	if err := h.authSvc.Logout(ctx, req.RefreshToken); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return new(emptypb.Empty), nil
 }
 
 // Refresh refreshes user session
@@ -152,7 +152,7 @@ func (h *CustomerGrpcHandler) DeleteByID(ctx context.Context, req *proto.DeleteC
 	if err := h.customerSvc.DeleteByID(ctx, req.Id); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return new(emptypb.Empty), nil
 }
 
 func (h *CustomerGrpcHandler) customerResponse(c *model.Customer) *proto.CustomerResponse {

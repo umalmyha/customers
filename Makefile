@@ -28,4 +28,16 @@ proto-gen:
 	protoc -Iproto --go_out=. --go_opt=module=github.com/umalmyha/customers --go-grpc_out=. --go-grpc_opt=module=github.com/umalmyha/customers --validate_out=paths=source_relative,lang=go:./proto ./proto/*.proto
 	@echo gRPC code has been generated
 
+test:
+	@echo running tests...
+	go test ./internal/repository ./internal/service ./internal/handlers -v -cover
+	@echo test finished test execution
+
+mocks-gen:
+	@echo generating repository and cache mocks
+	mockery --dir=./internal/repository --output=./internal/repository/mocks --all --with-expecter
+	mockery --dir=./pkg/db/transactor --output=./internal/repository/mocks --name=Transactor
+	mockery --dir=./internal/cache --output=./internal/cache/mocks --all --with-expecter
+	@echo mocks generation finished
+
 

@@ -74,7 +74,7 @@ func (r *postgresRefreshTokenRepository) DeleteByID(ctx context.Context, id stri
 }
 
 func (r *postgresRefreshTokenRepository) FindByID(ctx context.Context, id string) (*model.RefreshToken, error) {
-	q := "SELECT id, user_id, fingerprint, expires_in, created_a FROM refresh_tokens WHERE id = $1"
+	q := "SELECT id, user_id, fingerprint, expires_in, created_at FROM refresh_tokens WHERE id = $1"
 	row := r.Executor(ctx).QueryRow(ctx, q, id)
 	return r.scanRow(row)
 }
