@@ -22,24 +22,25 @@ import (
 const (
 	connectionTimeout = 3 * time.Second
 	testCtxTimeout    = 10 * time.Second
+	testNetwork       = "customers-rps-test-net"
 )
 
 const (
-	pgContainerName = "pg-test-customers"
+	pgContainerName = "pg-rps-test-customers"
 	pgPort          = "5432"
-	pgTestUser      = "test"
-	pgTestPassword  = "test"
-	pgTestDB        = "customers"
+	pgTestUser      = "rps-test"
+	pgTestPassword  = "rps-test"
+	pgTestDB        = "rps-customers"
 )
 
 const (
-	mongoContainerName = "mongo-test-customers"
+	mongoContainerName = "mongo-rps-test-customers"
 	mongoPort          = "27017"
-	mongoTestUser      = "test"
-	mongoTestPassword  = "test"
+	mongoTestUser      = "rps-test"
+	mongoTestPassword  = "rps-test"
 )
 
-type dockerResources struct {
+type repositoryDockerResources struct {
 	postgres *dockertest.Resource
 	mongodb  *dockertest.Resource
 	network  *docker.Network
@@ -48,30 +49,30 @@ type dockerResources struct {
 type repositoryTestSuite struct {
 	suite.Suite
 	dockerPool  *dockertest.Pool
-	resources   dockerResources
+	resources   repositoryDockerResources
 	pgPool      *pgxpool.Pool
 	mongoClient *mongo.Client
 }
 
 func (s *repositoryTestSuite) SetupSuite() {
 	t := s.T()
-	require := s.Require()
+	assert := s.Require()
 
 	// build docker pool
 	t.Log("build docker pool")
 	dockerPool, err := dockertest.NewPool("")
-	require.NoError(err, "failed to create pool")
+	assert.NoError(err, "failed to create pool")
 
 	t.Log("sending ping to docker...")
 	err = dockerPool.Client.Ping()
-	require.NoError(err, "failed to connect to docker")
+	assert.NoError(err, "failed to connect to docker")
 
 	s.dockerPool = dockerPool // assign pool
 
 	// create network for containers
 	t.Log("creating network...")
-	network, err := dockerPool.Client.CreateNetwork(docker.CreateNetworkOptions{Name: "customers-test-net"})
-	require.NoError(err, "failed to create network")
+	network, err := dockerPool.Client.CreateNetwork(docker.CreateNetworkOptions{Name: testNetwork})
+	assert.NoError(err, "failed to create network")
 
 	s.resources.network = network // assign network
 
@@ -91,7 +92,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 			"5432/tcp": {{HostIP: "localhost", HostPort: fmt.Sprintf("%s/tcp", pgPort)}},
 		},
 	})
-	require.NoError(err, "failed to start postgresql")
+	assert.NoError(err, "failed to start postgresql")
 
 	// run migrations
 	t.Log("run flyway migrations...")
@@ -99,12 +100,12 @@ func (s *repositoryTestSuite) SetupSuite() {
 		fmt.Sprintf("-url=jdbc:postgresql://%s:%s/%s", pgContainerName, pgPort, pgTestDB),
 		fmt.Sprintf("-user=%s", pgTestUser),
 		fmt.Sprintf("-password=%s", pgTestPassword),
-		"-connectRetries=5",
+		"-connectRetries=10",
 		"migrate",
 	}
 
 	migrationsPath, err := filepath.Abs("../../migrations")
-	require.NoError(err, "failed to build path to flyway migrations")
+	assert.NoError(err, "failed to build path to flyway migrations")
 
 	flywayMounts := []string{fmt.Sprintf("%s:/flyway/sql", migrationsPath)}
 
@@ -117,7 +118,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 	}, func(config *docker.HostConfig) {
 		config.AutoRemove = true
 	})
-	require.NoError(err, "failed to start flyway migrations")
+	assert.NoError(err, "failed to start flyway migrations")
 
 	s.resources.postgres = postgres // assign postgres
 
@@ -128,7 +129,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 		}
 		return nil
 	})
-	require.NoError(err, "failed to await flyway migrations")
+	assert.NoError(err, "failed to await flyway migrations")
 
 	// connect to postgres
 	t.Log("connecting to postgres...")
@@ -144,7 +145,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 		}
 		return s.pgPool.Ping(ctx)
 	})
-	require.NoError(err, "failed to establish connection to postgresql")
+	assert.NoError(err, "failed to establish connection to postgresql")
 
 	// start mongo
 	t.Log("starting mongodb...")
@@ -161,7 +162,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 			"27017/tcp": {{HostIP: "localhost", HostPort: fmt.Sprintf("%s/tcp", mongoPort)}},
 		},
 	})
-	require.NoError(err, "failed to start mongodb")
+	assert.NoError(err, "failed to start mongodb")
 
 	s.resources.mongodb = mongodb // assign mongodb
 
@@ -179,7 +180,7 @@ func (s *repositoryTestSuite) SetupSuite() {
 		}
 		return s.mongoClient.Ping(ctx, readpref.Primary())
 	})
-	require.NoError(err, "failed to establish connection to mongodb")
+	assert.NoError(err, "failed to establish connection to mongodb")
 }
 
 func (s *repositoryTestSuite) TearDownSuite() {
@@ -191,6 +192,7 @@ func (s *repositoryTestSuite) TearDownSuite() {
 	}
 
 	if s.mongoClient != nil {
+		t.Log("closing connection to mongodb")
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if err := s.mongoClient.Disconnect(ctx); err != nil {
 			t.Logf("failed to gracefully close connection to mongodb - %v", err)
@@ -509,6 +511,6 @@ func (s *repositoryTestSuite) testCustomerRps(customerRps CustomerRepository) {
 }
 
 // start repository test suite
-func TestRepositorySuite(t *testing.T) {
+func TestRepositoryTestSuite(t *testing.T) {
 	suite.Run(t, new(repositoryTestSuite))
 }

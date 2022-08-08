@@ -30,7 +30,7 @@ proto-gen:
 
 test:
 	@echo running tests...
-	go test ./internal/repository ./internal/service -v -cover
+	go test ./internal/repository ./internal/service ./internal/handlers -v -cover
 	@echo test finished test execution
 
 mocks-gen:
